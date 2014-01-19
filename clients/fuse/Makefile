@@ -59,6 +59,7 @@ LIB_OBJS =	\
 		$(objDir)/iFuseLib.Lock.o \
 		$(objDir)/iFuseLib.PathCache.o \
 		$(objDir)/iFuseLib.Utils.o \
+		$(objDir)/bgdownload.o \
 		$(reObjDir)/list.o \
 		$(reObjDir)/hashtable.o \
 		$(reObjDir)/region.o \

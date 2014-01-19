@@ -9,6 +9,7 @@
 #include "irodsFs.h"
 #include "iFuseOper.h"
 #include "miscUtil.h"
+#include "bgdownload.h"
 
 int
 irodsGetattr (const char *path, struct stat *stbuf)
@@ -654,6 +655,14 @@ irodsUtimens (const char *path, const struct timespec ts[2])
     return (0);
 }
 
+int
+invokeBgDownload (const char *path, int flags)
+{
+    printf("invokeBgDownload : %s\n", path);
+    
+    return startBgDownload(path, flags);
+}
+
 int 
 irodsOpen (const char *path, struct fuse_file_info *fi)
 {
@@ -731,6 +740,13 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
         if (desc == NULL) {
             rodsLogError (LOG_ERROR, status, "irodsOpen: allocIFuseDesc of %s error", path);
             return -ENOENT;
+        }
+        
+        // initialize background downloading
+        // iychoi
+        if(invokeBgDownload(path, flags) != 0) {
+            rodsLogError (LOG_ERROR, -1, "invokeBgDownload: could not download %s", path);
+            return -1;
         }
     } else {
 		rodsLog (LOG_DEBUG, "irodsOpenWithReadCache: caching %s", path);
