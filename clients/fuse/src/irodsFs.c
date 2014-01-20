@@ -14,6 +14,7 @@
 #include "irodsFs.h"
 #include "iFuseOper.h"
 #include "iFuseLib.h"
+#include "bgdownload.h"
 
 /* some global variables */
 
@@ -170,6 +171,10 @@ irodsOper.flush = irodsFlush;
     initIFuseDesc ();
     initConn();
     initFileCache();
+
+    // initialize background downloading
+    // iychoi
+    initializeBgDownload();
 
     status = fuse_main (argc, argv, &irodsOper, NULL);
 

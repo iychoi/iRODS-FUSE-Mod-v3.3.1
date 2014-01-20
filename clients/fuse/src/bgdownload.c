@@ -11,7 +11,14 @@
 
 using namespace std;
 
-pthread_t threads[MAX_BG_THREADS];
+typedef struct _thread_info
+{
+    pthread_t thread;
+    char path[MAX_NAME_LEN];
+    int running;
+} thread_info;
+
+thread_info threads[MAX_BG_THREADS];
 
 typedef struct _thread_data
 {
@@ -20,30 +27,86 @@ typedef struct _thread_data
     int flags;
 } thread_data;
 
-void thread_func(void *arg);
+void *thread_func(void *arg);
+
+int
+initializeBgDownload()
+{
+    int i;
+    for(i=0;i<MAX_BG_THREADS;i++) {
+        memset(&threads[i], 0, sizeof(thread_info));
+    }
+
+    return (0);
+}
 
 int
 startBgDownload(const char *path, int flags)
 {
+    int status;
+    int i;
+    thread_info *thread = NULL;
     thread_data param;
-    //cout << "startBgDownload invoked" << endl;
-    param.thread_no = 0;
-    rstrcpy(param.path, (char*)path, MAX_NAME_LEN);
-    param.flags = flags;
 
-    thread_func(&param);
-    return (0);
+    //cout << "startBgDownload invoked" << endl;
+
+    // check downloading is running
+    for(i=0;i<MAX_BG_THREADS;i++) {
+        thread_info *mythread = &threads[i];
+        if(strcmp(mythread->path, path) == 0) {
+            // same file is already in downloading
+            return -1;
+        }
+    }
+
+    // find idle thread
+    for(i=0;i<MAX_BG_THREADS;i++) {
+        thread_info *mythread = &threads[i];
+        if(mythread->running == DOWNLOAD_THREAD_IDLE) {
+            // idle
+            thread = mythread;
+
+            // filling thread_data
+            param.thread_no = i;
+            rstrcpy(param.path, (char*)path, MAX_NAME_LEN);
+            param.flags = flags;
+            
+            break;
+        }
+    }
+
+    if(thread == NULL) {
+        return -1;
+    }
+
+    // prepare thread
+    rstrcpy(thread->path, (char*)path, MAX_NAME_LEN);
+    thread->running = DOWNLOAD_THREAD_RUNNING;
+
+    status = pthread_create(&thread->thread, NULL, thread_func, (void *)&param);
+    return (status);
+    //thread_func(&param);
+    //return (0);
 }
 
-void thread_func(void *arg)
+void *thread_func(void *arg)
 {
     int status;
-    thread_data *param;
-    param = (thread_data *)arg;
+    thread_data *param = (thread_data *)arg;
+    thread_info *thread = &threads[param->thread_no];
+
+    printf("thread run\n");
+
     status = _download(param->path, param->flags);
     if(status != 0) {
         printf("downloading error : %d\n", status);
     }
+
+    thread->running = DOWNLOAD_THREAD_IDLE;
+    memset(thread->path, 0, MAX_NAME_LEN);
+    printf("thread gone\n");
+
+    pthread_exit(NULL);
 }
 
 int
@@ -52,11 +115,12 @@ _download(const char *path, int flags)
     int status;
     dataObjInp_t dataObjInp;
     struct stat stbuf;
+    char tempCachePath[MAX_NAME_LEN];
     char cachePath[MAX_NAME_LEN];
     char objPath[MAX_NAME_LEN];
     iFuseConn_t *iFuseConn = NULL;
-    pathCache_t *tmpPathCache = NULL;
-    iFuseDesc_t *desc = NULL;
+    //pathCache_t *tmpPathCache = NULL;
+    //iFuseDesc_t *desc = NULL;
 
     printf("downloading file %s\n", path);
 
@@ -94,10 +158,15 @@ _download(const char *path, int flags)
 
     // start download
     rodsLog (LOG_DEBUG, "irodsOpenWithReadCache: caching %s", path);
-	if ((status = getDownloadCachePath (path, cachePath)) < 0) {
+	if ((status = getTempDownloadCachePath (path, tempCachePath)) < 0) {
 		unuseIFuseConn(iFuseConn);
 		return status;
 	}
+
+    if ((status = getDownloadCachePath (path, cachePath)) < 0) {
+		unuseIFuseConn(iFuseConn);
+        return status;
+    }
     
     // make cache dir
     printf("making cache path %s\n", cachePath);
@@ -106,7 +175,7 @@ _download(const char *path, int flags)
 	/* get the file to local cache */
 	dataObjInp.dataSize = stbuf.st_size;
 
-	status = rcDataObjGet (iFuseConn->conn, &dataObjInp, cachePath);
+	status = rcDataObjGet (iFuseConn->conn, &dataObjInp, tempCachePath);
 	unuseIFuseConn(iFuseConn);
 
 	if (status < 0) {
@@ -114,8 +183,8 @@ _download(const char *path, int flags)
 		return status;
 	}
 
-    updateFileTime(cachePath, &stbuf);
-
+    completeFileDownload(tempCachePath, cachePath, &stbuf);
+    
     /*
     int fd = open(cachePath, O_RDWR);
 
@@ -138,19 +207,48 @@ _download(const char *path, int flags)
 }
 
 int
-updateFileTime(const char *inPath, struct stat *stbuf)
+completeFileDownload(const char *inPath, const char *destPath, struct stat *stbuf)
 {
+    int status;
     struct utimbuf amtime;
 
-    if (inPath == NULL || stbuf == NULL) {
-        rodsLog (LOG_ERROR, "updateFileTime: input inPath or stbuf is NULL");
+    if (inPath == NULL || destPath == NULL || stbuf == NULL) {
+        rodsLog (LOG_ERROR, "completeFileDownload: input inPath or destPath or stbuf is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
     amtime.actime = stbuf->st_atime;
     amtime.modtime = stbuf->st_mtime;    
 
-    utime(inPath, &amtime);
+    status = utime(inPath, &amtime);
+    if(status < 0) {
+        return status;
+    }
+
+    return rename(inPath, destPath);
+}
+
+int
+checkCacheExistanceNoCheck(const char *inPath)
+{
+    int status;
+    char cachePath[MAX_NAME_LEN];
+    struct stat stbufCache;
+
+    if (inPath == NULL) {
+        rodsLog (LOG_ERROR, "checkCacheExistance: input inPath is NULL");
+        return (SYS_INTERNAL_NULL_INPUT_ERR);
+    }
+
+	if ((status = getDownloadCachePath (inPath, cachePath)) < 0) {
+        return status;
+    }
+
+    if ((status = stat(cachePath, &stbufCache)) < 0) {
+        return status;
+    }
+
+    return (0);
 }
 
 int
@@ -218,6 +316,22 @@ getDownloadCachePath(const char *inPath, char *cachePath)
         snprintf(cachePath, MAX_NAME_LEN, "%s%s", BGDOWNLOAD_CACHE_PATH, inPath);
     } else {
         snprintf(cachePath, MAX_NAME_LEN, "%s/%s", BGDOWNLOAD_CACHE_PATH, inPath);
+    }
+    return (0);
+}
+
+int
+getTempDownloadCachePath(const char *inPath, char *cachePath)
+{
+    if (inPath == NULL || cachePath == NULL) {
+        rodsLog (LOG_ERROR, "getTempDownloadCachePath: input inPath or cachePath is NULL");
+        return (SYS_INTERNAL_NULL_INPUT_ERR);
+    }
+
+    if(strlen(inPath) > 0 && inPath[0] == '/') {
+        snprintf(cachePath, MAX_NAME_LEN, "%s%s.part", BGDOWNLOAD_CACHE_PATH, inPath);
+    } else {
+        snprintf(cachePath, MAX_NAME_LEN, "%s/%s.part", BGDOWNLOAD_CACHE_PATH, inPath);
     }
     return (0);
 }

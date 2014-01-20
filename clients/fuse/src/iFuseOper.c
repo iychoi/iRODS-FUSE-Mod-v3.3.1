@@ -744,10 +744,8 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
         
         // initialize background downloading
         // iychoi
-        if(invokeBgDownload(path, flags) != 0) {
-            rodsLogError (LOG_ERROR, -1, "invokeBgDownload: could not download %s", path);
-            return -1;
-        }
+        // this my fail if running background tasks are too many
+        invokeBgDownload(path, flags);
     } else {
 		rodsLog (LOG_DEBUG, "irodsOpenWithReadCache: caching %s", path);
 		if ((status = getFileCachePath (path, cachePath)) < 0) {
@@ -796,13 +794,32 @@ struct fuse_file_info *fi)
 
     rodsLog (LOG_DEBUG, "irodsRead: %s", path);
 
-    descInx = fi->fh;
+    // iychoi
+    // check local cache
+    if((status = checkCacheExistanceNoCheck(path)) == 0) {
+        printf("has cache\n");
+        // has cache
+        //int desc = getCachedFileDesc(path);
+        char cachePath[MAX_NAME_LEN];
+        if ((status = getDownloadCachePath (path, cachePath)) < 0) {
+            return status;
+        }
 
-    if (checkFuseDesc (descInx) < 0) {
-    	return -EBADF;
+        // read from cache
+		int desc = open(cachePath, O_RDWR);
+        lseek(desc, offset, SEEK_SET);
+        status = read(desc, buf, size);
+        close(desc);
+    } else {    
+        printf("no cache\n");
+        descInx = fi->fh;
+
+        if (checkFuseDesc (descInx) < 0) {
+        	return -EBADF;
+        }
+
+        status = _ifuseRead (&IFuseDesc[descInx], buf, size, offset);
     }
-
-    status = _ifuseRead (&IFuseDesc[descInx], buf, size, offset);
 
     return status;
 }
