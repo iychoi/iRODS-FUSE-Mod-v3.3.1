@@ -5,11 +5,22 @@
 #include <assert.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/time.h>
+#include <time.h>
 #include "irodsFs.h"
 #include "iFuseOper.h"
 #include "miscUtil.h"
 
 // structures
+typedef struct _bgdn_cache_info
+{
+    char path[MAX_NAME_LEN];
+    off_t size;
+    timeval lastAccess;
+} bgdn_cache_info;
+
+bgdn_cache_info caches[MAX_NUM_OF_CACHES];
+
 typedef struct _bgdn_thread_info
 {
     pthread_t thread;
@@ -44,6 +55,8 @@ int _makeDirs(const char *path);
 int _removeAllCaches();
 int _removeDir(const char *path);
 unsigned long _getCacheFreeSpace();
+struct timeval _getCurrentTime();
+double _timeDiff(struct timeval a, struct timeval b);
 
 // implementations
 
@@ -51,6 +64,10 @@ int
 bgdnInitialize()
 {
     int i;
+    for(i=0;i<MAX_NUM_OF_CACHES;i++) {
+        memset(&caches[i], 0, sizeof(bgdn_cache_info));
+    }
+
     for(i=0;i<MAX_BG_THREADS;i++) {
         memset(&threads[i], 0, sizeof(bgdn_thread_info));
     }
@@ -180,7 +197,7 @@ _download(const char *path, int flags)
     char cachePath[MAX_NAME_LEN];
     char objPath[MAX_NAME_LEN];
     iFuseConn_t *iFuseConn = NULL;
-    unsigned long freespc;
+    off_t freespc;
 
     bgdn_log("_download: downloading file - %s\n", path);
 
@@ -256,6 +273,9 @@ _completeDownload(const char *inPath, const char *destPath, struct stat *stbuf)
 {
     int status;
     struct utimbuf amtime;
+    int i;
+    bgdn_cache_info *emptyInfo = NULL;
+    bgdn_cache_info *oldestInfo = NULL;
 
     if (inPath == NULL || destPath == NULL || stbuf == NULL) {
         rodsLog (LOG_ERROR, "_completeDownload: input inPath or destPath or stbuf is NULL");
@@ -263,7 +283,7 @@ _completeDownload(const char *inPath, const char *destPath, struct stat *stbuf)
     }
 
     amtime.actime = stbuf->st_atime;
-    amtime.modtime = stbuf->st_mtime;    
+    amtime.modtime = stbuf->st_mtime;
 
     // set last access time and modified time the same as the original file
     status = utime(inPath, &amtime);
@@ -272,7 +292,44 @@ _completeDownload(const char *inPath, const char *destPath, struct stat *stbuf)
     }
 
     // change the name
-    return rename(inPath, destPath);
+    status = rename(inPath, destPath);
+    if(status < 0) {
+        return status;
+    }
+
+    // register to the array
+    for(i=0;i<MAX_NUM_OF_CACHES;i++) {
+        bgdn_cache_info *myInfo = &caches[i];
+        if(myInfo->size == 0) {
+            // found empty
+            emptyInfo = myInfo;
+            break;
+        } else {
+            if(oldestInfo == NULL) {
+                oldestInfo = myInfo;
+            } else {
+                if(_timeDiff(oldestInfo->lastAccess, myInfo->lastAccess) > 0) {
+                    oldestInfo = myInfo;
+                }
+            }
+        }
+    }
+
+    if(emptyInfo != NULL) {
+        // has empty
+        rstrcpy(emptyInfo->path, (char*)destPath, MAX_NAME_LEN);
+        emptyInfo->size = stbuf->st_size;
+        emptyInfo->lastAccess = _getCurrentTime();
+    } else {
+        // evict cache
+        if(oldestInfo != NULL && strlen(oldestInfo->path) > 0) {
+            unlink(oldestInfo->path);
+            rstrcpy(oldestInfo->path, (char*)destPath, MAX_NAME_LEN);
+            oldestInfo->size = stbuf->st_size;
+            oldestInfo->lastAccess = _getCurrentTime();
+        }
+    }
+    return (0);
 }
 
 int
@@ -532,4 +589,22 @@ _getCacheFreeSpace()
 
     bgdn_log("_getCacheFreeSpace: err : %d(%d)\n", status, errno);
     return 0;
+}
+
+struct timeval
+_getCurrentTime()
+{
+	struct timeval s_now;
+	gettimeofday(&s_now, NULL);
+	return s_now;
+}
+
+double
+_timeDiff(struct timeval a, struct timeval b)
+{
+	double time1;
+	double time2;
+	time1 = a.tv_sec + a.tv_usec / (double)1000000;
+	time2 = b.tv_sec + b.tv_usec / (double)1000000;
+	return time1 - time2;
 }
