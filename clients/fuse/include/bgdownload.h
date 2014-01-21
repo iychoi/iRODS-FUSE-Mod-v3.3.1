@@ -7,6 +7,21 @@
 extern "C" {
 #endif
 
+#define _DEBUG
+
+#ifdef _DEBUG
+#define _DBG_(x)	x
+#else
+#define _DBG_(x)
+#endif
+
+#define bgdn_log(fmt, args...) {										\
+	_DBG_(																\
+		printf("%s:%d: " fmt, __FILE__, __LINE__, ##args);				\
+	)																	\
+}
+
+#define BGDOWNLOAD_CACHE_PARENT_PATH    "/tmp"
 #define BGDOWNLOAD_CACHE_PATH "/tmp/irods_bgdncache"
 
 #define MAX_BG_THREADS  5
@@ -14,28 +29,13 @@ extern "C" {
 #define DOWNLOAD_THREAD_RUNNING    1
 #define DOWNLOAD_THREAD_IDLE    0
 
-int initializeBgDownload();
+// public functions
+int bgdnInitialize();
+int bgdnUninitialize();
 
-int startBgDownload(const char *path, int flags);
-int _download(const char *path, int flags);
-
-int completeFileDownload(const char *inPath, const char *destPath, struct stat *stbuf);
-
-int checkCacheExistanceNoCheck(const char *inPath);
-
-int checkCacheExistance(const char *inPath, struct stat *stbuf);
-
-int invalidateCacheFile(const char *inPath);
-
-int getDownloadCachePath(const char *inPath, char *cachePath);
-
-int getTempDownloadCachePath(const char *inPath, char *cachePath);
-
-int makeDownloadCacheDir(const char *filePath);
-
-int isDirectory(const char *path);
-
-int makeDirs(const char *path);
+int bgdnDownload(const char *path, int flags);
+int bgdnHasCache(const char *inPath);
+int bgdnGetCachePath(const char *inPath, char *cachePath);
 
 #ifdef  __cplusplus
 }

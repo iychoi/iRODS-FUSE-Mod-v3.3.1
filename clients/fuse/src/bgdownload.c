@@ -9,59 +9,104 @@
 #include "iFuseOper.h"
 #include "miscUtil.h"
 
-using namespace std;
-
-typedef struct _thread_info
+// structures
+typedef struct _bgdn_thread_info
 {
     pthread_t thread;
     char path[MAX_NAME_LEN];
     int running;
-} thread_info;
+} bgdn_thread_info;
 
-thread_info threads[MAX_BG_THREADS];
+bgdn_thread_info threads[MAX_BG_THREADS];
+pthread_mutex_t threadLock;
 
-typedef struct _thread_data
+typedef struct _bgdn_thread_data
 {
     int thread_no;
     char path[MAX_NAME_LEN];
     int flags;
-} thread_data;
+} bgdn_thread_data;
 
-void *thread_func(void *arg);
+
+// function definitions
+void *_downloadThread(void *arg);
+int _download(const char *path, int flags);
+int _completeDownload(const char *inPath, const char *destPath, struct stat *stbuf);
+int _hasValidCache(const char *inPath, struct stat *stbuf);
+int _getCachePath(const char *inPath, char *cachePath);
+int _hasCache(const char *inPath);
+int _invalidateCache(const char *inPath);
+int _getCacheDownloadingPath(const char *inPath, char *cachePath);
+int _prepareCacheDir();
+int _prepareDir(const char *filePath);
+int _isDirectory(const char *path);
+int _makeDirs(const char *path);
+int _removeAllCaches();
+int _removeDir(const char *path);
+unsigned long _getCacheFreeSpace();
+
+// implementations
 
 int
-initializeBgDownload()
+bgdnInitialize()
 {
     int i;
     for(i=0;i<MAX_BG_THREADS;i++) {
-        memset(&threads[i], 0, sizeof(thread_info));
+        memset(&threads[i], 0, sizeof(bgdn_thread_info));
     }
+
+    pthread_mutex_init(&threadLock, NULL);
+
+    _prepareCacheDir();
 
     return (0);
 }
 
 int
-startBgDownload(const char *path, int flags)
+bgdnUninitialize()
 {
     int status;
     int i;
-    thread_info *thread = NULL;
-    thread_data param;
+
+    status = pthread_mutex_destroy(&threadLock);
+
+    for(i=0;i<MAX_BG_THREADS;i++) {
+        if(threads[i].running == DOWNLOAD_THREAD_RUNNING) {
+            status = pthread_join(threads[i].thread, NULL);
+        }
+    }
+
+    // remove all caches
+    _removeAllCaches();
+
+    return (0);
+}
+
+int
+bgdnDownload(const char *path, int flags)
+{
+    int status;
+    int i;
+    bgdn_thread_info *thread = NULL;
+    bgdn_thread_data param;
 
     //cout << "startBgDownload invoked" << endl;
 
     // check downloading is running
+    status = pthread_mutex_lock(&threadLock);
+
     for(i=0;i<MAX_BG_THREADS;i++) {
-        thread_info *mythread = &threads[i];
+        bgdn_thread_info *mythread = &threads[i];
         if(strcmp(mythread->path, path) == 0) {
             // same file is already in downloading
+            status = pthread_mutex_unlock(&threadLock);
             return -1;
         }
     }
 
     // find idle thread
     for(i=0;i<MAX_BG_THREADS;i++) {
-        thread_info *mythread = &threads[i];
+        bgdn_thread_info *mythread = &threads[i];
         if(mythread->running == DOWNLOAD_THREAD_IDLE) {
             // idle
             thread = mythread;
@@ -76,35 +121,51 @@ startBgDownload(const char *path, int flags)
     }
 
     if(thread == NULL) {
+        bgdn_log("bgdnDownload: could not create a new thread\n");
         return -1;
     }
 
     // prepare thread
     rstrcpy(thread->path, (char*)path, MAX_NAME_LEN);
     thread->running = DOWNLOAD_THREAD_RUNNING;
+    status = pthread_mutex_unlock(&threadLock);
 
-    status = pthread_create(&thread->thread, NULL, thread_func, (void *)&param);
+    status = pthread_create(&thread->thread, NULL, _downloadThread, (void *)&param);
     return (status);
-    //thread_func(&param);
-    //return (0);
 }
 
-void *thread_func(void *arg)
+int
+bgdnHasCache(const char *inPath)
+{
+    return _hasCache(inPath);
+}
+
+int
+bgdnGetCachePath(const char *inPath, char *cachePath)
+{
+    return _getCachePath(inPath, cachePath);
+}
+
+// private functions
+void *_downloadThread(void *arg)
 {
     int status;
-    thread_data *param = (thread_data *)arg;
-    thread_info *thread = &threads[param->thread_no];
+    bgdn_thread_data *param = (bgdn_thread_data *)arg;
+    bgdn_thread_info *thread = &threads[param->thread_no];
 
-    printf("thread run\n");
+    bgdn_log("_downloadThread: new thread is now running - %s\n", param->path);
 
     status = _download(param->path, param->flags);
     if(status != 0) {
-        printf("downloading error : %d\n", status);
+        bgdn_log("_downloadThread: download error - %d\n", status);
     }
 
+    // chage thread state
+    status = pthread_mutex_lock(&threadLock);
     thread->running = DOWNLOAD_THREAD_IDLE;
     memset(thread->path, 0, MAX_NAME_LEN);
-    printf("thread gone\n");
+    bgdn_log("_downloadThread: thread finished - %s\n", param->path);
+    status = pthread_mutex_unlock(&threadLock);
 
     pthread_exit(NULL);
 }
@@ -119,10 +180,9 @@ _download(const char *path, int flags)
     char cachePath[MAX_NAME_LEN];
     char objPath[MAX_NAME_LEN];
     iFuseConn_t *iFuseConn = NULL;
-    //pathCache_t *tmpPathCache = NULL;
-    //iFuseDesc_t *desc = NULL;
+    unsigned long freespc;
 
-    printf("downloading file %s\n", path);
+    bgdn_log("_download: downloading file - %s\n", path);
 
     memset (&dataObjInp, 0, sizeof (dataObjInp));
 	dataObjInp.openFlags = flags;
@@ -130,7 +190,7 @@ _download(const char *path, int flags)
 	status = parseRodsPathStr ((char *) (path + 1) , &MyRodsEnv, objPath);
 	rstrcpy(dataObjInp.objPath, objPath, MAX_NAME_LEN);
 	if (status < 0) {
-		rodsLogError (LOG_ERROR, status, "irodsOpen: parseRodsPathStr of %s error", path);
+		rodsLogError (LOG_ERROR, status, "_download: parseRodsPathStr of %s error", path);
 		/* use ENOTDIR for this type of error */
 		return -ENOTDIR;
 	}
@@ -138,39 +198,44 @@ _download(const char *path, int flags)
 	iFuseConn = getAndUseConnByPath((char *) path, &MyRodsEnv, &status);
 	/* status = getAndUseIFuseConn(&iFuseConn, &MyRodsEnv); */
 	if(status < 0) {
-		rodsLogError (LOG_ERROR, status, "irodsOpen: cannot get connection for %s error", path);
+		rodsLogError (LOG_ERROR, status, "_download: cannot get connection for %s error", path);
 		/* use ENOTDIR for this type of error */
 		return -ENOTDIR;
 	}
 
 	status = _irodsGetattr (iFuseConn, path, &stbuf);
 
-    if ((status = checkCacheExistance(path, &stbuf)) == 0) {
+    if ((status = _hasValidCache(path, &stbuf)) == 0) {
         // have cache
-        printf("cache exists %s\n", path);
         unuseIFuseConn(iFuseConn);
         return 0;
     }
 
-    printf("cache not exists %s\n", path);
-    // invalidate cache
-    invalidateCacheFile(path);
+    // invalidate cache - this may fail if cache file does not exists
+    _invalidateCache(path);
+
+    freespc = _getCacheFreeSpace();
+    if(freespc < stbuf.st_size) {
+        bgdn_log("_download: cache space not enough - %lu (%lu in free)\n", stbuf.st_size, freespc);
+        unuseIFuseConn(iFuseConn);
+        return -ENOSPC;
+    }
 
     // start download
-    rodsLog (LOG_DEBUG, "irodsOpenWithReadCache: caching %s", path);
-	if ((status = getTempDownloadCachePath (path, tempCachePath)) < 0) {
+    rodsLog (LOG_DEBUG, "_download: caching %s", path);
+    bgdn_log("_download: caching - %s\n", path);
+	if ((status = _getCacheDownloadingPath(path, tempCachePath)) < 0) {
 		unuseIFuseConn(iFuseConn);
 		return status;
 	}
 
-    if ((status = getDownloadCachePath (path, cachePath)) < 0) {
+    if ((status = _getCachePath(path, cachePath)) < 0) {
 		unuseIFuseConn(iFuseConn);
         return status;
     }
     
     // make cache dir
-    printf("making cache path %s\n", cachePath);
-    makeDownloadCacheDir(cachePath);
+    _prepareDir(cachePath);
 
 	/* get the file to local cache */
 	dataObjInp.dataSize = stbuf.st_size;
@@ -179,68 +244,50 @@ _download(const char *path, int flags)
 	unuseIFuseConn(iFuseConn);
 
 	if (status < 0) {
-		rodsLogError (LOG_ERROR, status, "irodsOpenWithReadCache: rcDataObjGet of %s error", dataObjInp.objPath);
+		rodsLogError (LOG_ERROR, status, "_download: rcDataObjGet of %s error", dataObjInp.objPath);
 		return status;
 	}
 
-    completeFileDownload(tempCachePath, cachePath, &stbuf);
-    
-    /*
-    int fd = open(cachePath, O_RDWR);
-
-	fileCache_t *fileCache = addFileCache(fd, objPath, (char *) path, cachePath, stbuf.st_mode, HAVE_READ_CACHE);
-    matchAndLockPathCache((char *) path, &tmpPathCache);
-	if(tmpPathCache == NULL) {
-		pathExist((char *) path, fileCache, &stbuf, NULL);
-	} else {
-		_addFileCacheForPath(tmpPathCache, fileCache);
-		UNLOCK_STRUCT(*tmpPathCache);
-	}
-
-    desc = newIFuseDesc(objPath, (char *) path,fileCache, &status);
-	if (status < 0) {
-		rodsLogError (LOG_ERROR, status, "irodsOpen: create descriptor of %s error", dataObjInp.objPath);
-		return status;
-	}
-    */
-    return (0);
+    return _completeDownload(tempCachePath, cachePath, &stbuf);
 }
 
 int
-completeFileDownload(const char *inPath, const char *destPath, struct stat *stbuf)
+_completeDownload(const char *inPath, const char *destPath, struct stat *stbuf)
 {
     int status;
     struct utimbuf amtime;
 
     if (inPath == NULL || destPath == NULL || stbuf == NULL) {
-        rodsLog (LOG_ERROR, "completeFileDownload: input inPath or destPath or stbuf is NULL");
+        rodsLog (LOG_ERROR, "_completeDownload: input inPath or destPath or stbuf is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
     amtime.actime = stbuf->st_atime;
     amtime.modtime = stbuf->st_mtime;    
 
+    // set last access time and modified time the same as the original file
     status = utime(inPath, &amtime);
     if(status < 0) {
         return status;
     }
 
+    // change the name
     return rename(inPath, destPath);
 }
 
 int
-checkCacheExistanceNoCheck(const char *inPath)
+_hasCache(const char *inPath)
 {
     int status;
     char cachePath[MAX_NAME_LEN];
     struct stat stbufCache;
 
     if (inPath == NULL) {
-        rodsLog (LOG_ERROR, "checkCacheExistance: input inPath is NULL");
+        rodsLog (LOG_ERROR, "_hasCache: input inPath is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
-	if ((status = getDownloadCachePath (inPath, cachePath)) < 0) {
+	if ((status = _getCachePath(inPath, cachePath)) < 0) {
         return status;
     }
 
@@ -252,18 +299,18 @@ checkCacheExistanceNoCheck(const char *inPath)
 }
 
 int
-checkCacheExistance(const char *inPath, struct stat *stbuf)
+_hasValidCache(const char *inPath, struct stat *stbuf)
 {
     int status;
     char cachePath[MAX_NAME_LEN];
     struct stat stbufCache;
 
     if (inPath == NULL || stbuf == NULL) {
-        rodsLog (LOG_ERROR, "checkCacheExistance: input inPath or stbuf is NULL");
+        rodsLog (LOG_ERROR, "_hasValidCache: input inPath or stbuf is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
-	if ((status = getDownloadCachePath (inPath, cachePath)) < 0) {
+	if ((status = _getCachePath(inPath, cachePath)) < 0) {
         return status;
     }
 
@@ -288,16 +335,16 @@ checkCacheExistance(const char *inPath, struct stat *stbuf)
 }
 
 int
-invalidateCacheFile(const char *inPath) {
+_invalidateCache(const char *inPath) {
     int status;
     char cachePath[MAX_NAME_LEN];
 
     if (inPath == NULL) {
-        rodsLog (LOG_ERROR, "invalidateCacheFile: input inPath is NULL");
+        rodsLog (LOG_ERROR, "_invalidateCache: input inPath is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
-    if ((status = getDownloadCachePath (inPath, cachePath)) < 0) {
+    if ((status = _getCachePath(inPath, cachePath)) < 0) {
         return status;
     }
 
@@ -305,10 +352,10 @@ invalidateCacheFile(const char *inPath) {
 }
 
 int
-getDownloadCachePath(const char *inPath, char *cachePath)
+_getCachePath(const char *inPath, char *cachePath)
 {
     if (inPath == NULL || cachePath == NULL) {
-        rodsLog (LOG_ERROR, "getDownloadCachePath: input inPath or cachePath is NULL");
+        rodsLog (LOG_ERROR, "_getCachePath: input inPath or cachePath is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
@@ -321,10 +368,10 @@ getDownloadCachePath(const char *inPath, char *cachePath)
 }
 
 int
-getTempDownloadCachePath(const char *inPath, char *cachePath)
+_getCacheDownloadingPath(const char *inPath, char *cachePath)
 {
     if (inPath == NULL || cachePath == NULL) {
-        rodsLog (LOG_ERROR, "getTempDownloadCachePath: input inPath or cachePath is NULL");
+        rodsLog (LOG_ERROR, "_getTempDownloadCachePath: input inPath or cachePath is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
@@ -337,34 +384,42 @@ getTempDownloadCachePath(const char *inPath, char *cachePath)
 }
 
 int
-makeDownloadCacheDir(const char *filePath)
+_prepareCacheDir()
+{
+    int status;
+    status = _makeDirs(BGDOWNLOAD_CACHE_PATH);   
+    return status; 
+}
+
+int
+_prepareDir(const char *filePath)
 {
     int status;
     char myDir[MAX_NAME_LEN], myFile[MAX_NAME_LEN];
     
     if (filePath == NULL) {
-        rodsLog (LOG_ERROR, "makeDownloadCacheDir: input filePath is NULL");
+        rodsLog (LOG_ERROR, "_prepareDir: input filePath is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
     splitPathByKey ((char *) filePath, myDir, myFile, '/');
     
     // make dirs
-    status = makeDirs(myDir);
+    status = _makeDirs(myDir);
     return status;
 }
 
 int
-isDirectory(const char *path)
+_isDirectory(const char *path)
 {
     struct stat stbuf;
 
     if (path == NULL) {
-        rodsLog (LOG_ERROR, "isDirectory: input path is NULL");
+        rodsLog (LOG_ERROR, "_isDirectory: input path is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
-    if ((stat(path, &stbuf) == 0) && (((stbuf.st_mode) & S_IFMT) == S_IFDIR)) {
+    if ((stat(path, &stbuf) == 0) && (S_ISDIR(stbuf.st_mode))) {
         return (0);
     }
 
@@ -372,22 +427,22 @@ isDirectory(const char *path)
 }
 
 int
-makeDirs(const char *path)
+_makeDirs(const char *path)
 {
     char myDir[MAX_NAME_LEN], myFile[MAX_NAME_LEN];
     int status;
 
-    printf("makeDirs : %s\n", path);
+    bgdn_log("_makeDirs: %s\n", path);
 
     if (path == NULL) {
-        rodsLog (LOG_ERROR, "makeDirs: input path is NULL");
+        rodsLog (LOG_ERROR, "_makeDirs: input path is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
     splitPathByKey ((char *) path, myDir, myFile, '/');
-    if(isDirectory(myDir) < 0) {
+    if(_isDirectory(myDir) < 0) {
         // parent not exist
-        status = makeDirs(myDir);
+        status = _makeDirs(myDir);
 
         if(status < 0) {
             return (status);
@@ -400,4 +455,81 @@ makeDirs(const char *path)
         return (0);
     }
     return status;
+}
+
+int
+_removeAllCaches()
+{
+    return _removeDir(BGDOWNLOAD_CACHE_PATH);
+}
+
+int
+_removeDir(const char *path)
+{
+    DIR *dir = opendir(path);
+    char myDir[MAX_NAME_LEN];
+    struct dirent *entry;
+    struct stat statbuf;
+    int status;
+    int statusFailed = 0;
+
+    if (dir != NULL) {
+        while ((entry = readdir(dir)) != NULL) {
+            if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) {
+                continue;
+            }
+
+            snprintf(myDir, MAX_NAME_LEN, "%s/%s", path, entry->d_name);
+            bgdn_log("_removeDir: removing : %s\n", myDir);
+
+            if (!stat(myDir, &statbuf)) {
+                // has entry
+                if (S_ISDIR(statbuf.st_mode)) {
+                    // directory
+                    status = _removeDir(myDir);
+                    if(status < 0) {
+                        statusFailed = status;
+                    }
+                } else {
+                    // file
+                    status = unlink(myDir);
+                    if(status < 0) {
+                        statusFailed = status;
+                    }
+                }
+            }
+        }
+        closedir(dir);
+    }
+
+    if(statusFailed == 0) {
+        statusFailed = rmdir(path);
+    }
+    return statusFailed;
+}
+
+unsigned long
+_getCacheFreeSpace()
+{
+    int status;
+    struct statvfs buf;
+    char myDir[MAX_NAME_LEN];
+
+    snprintf(myDir, MAX_NAME_LEN, "%s/", BGDOWNLOAD_CACHE_PARENT_PATH);
+    //bgdn_log("_getCacheFreeSpace: check size %s\n", myDir);
+
+    if ((status = statvfs(myDir, &buf)) == 0) {
+        unsigned long blksize, freeblks, free;
+
+        blksize = buf.f_bsize;
+        freeblks = buf.f_bfree;
+        free = freeblks * blksize;
+        //bgdn_log("_getCacheFreeSpace: blksize = %lu\n", blksize);
+        //bgdn_log("_getCacheFreeSpace: freeblks = %lu\n", freeblks);
+        //bgdn_log("_getCacheFreeSpace: free = %lu\n", free);
+        return free;
+    }
+
+    bgdn_log("_getCacheFreeSpace: err : %d(%d)\n", status, errno);
+    return 0;
 }

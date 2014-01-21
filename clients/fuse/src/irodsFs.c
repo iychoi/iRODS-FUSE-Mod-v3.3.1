@@ -172,11 +172,15 @@ irodsOper.flush = irodsFlush;
     initConn();
     initFileCache();
 
-    // initialize background downloading
     // iychoi
-    initializeBgDownload();
+    // initialize background downloading
+    bgdnInitialize();
 
     status = fuse_main (argc, argv, &irodsOper, NULL);
+
+    // iychoi
+    // uninitialize background downloading
+    bgdnUninitialize();
 
     disconnectAll ();
 

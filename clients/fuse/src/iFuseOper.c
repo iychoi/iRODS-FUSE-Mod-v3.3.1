@@ -655,14 +655,6 @@ irodsUtimens (const char *path, const struct timespec ts[2])
     return (0);
 }
 
-int
-invokeBgDownload (const char *path, int flags)
-{
-    printf("invokeBgDownload : %s\n", path);
-    
-    return startBgDownload(path, flags);
-}
-
 int 
 irodsOpen (const char *path, struct fuse_file_info *fi)
 {
@@ -742,10 +734,10 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
             return -ENOENT;
         }
         
-        // initialize background downloading
         // iychoi
+        // initialize background downloading
         // this my fail if running background tasks are too many
-        invokeBgDownload(path, flags);
+        bgdnDownload(path, flags);
     } else {
 		rodsLog (LOG_DEBUG, "irodsOpenWithReadCache: caching %s", path);
 		if ((status = getFileCachePath (path, cachePath)) < 0) {
@@ -791,27 +783,23 @@ struct fuse_file_info *fi)
 {
     int descInx;
     int status;
+    char cachePath[MAX_NAME_LEN];
 
     rodsLog (LOG_DEBUG, "irodsRead: %s", path);
 
     // iychoi
     // check local cache
-    if((status = checkCacheExistanceNoCheck(path)) == 0) {
-        printf("has cache\n");
-        // has cache
-        //int desc = getCachedFileDesc(path);
-        char cachePath[MAX_NAME_LEN];
-        if ((status = getDownloadCachePath (path, cachePath)) < 0) {
-            return status;
-        }
+    if(bgdnHasCache(path) >= 0 &&
+        bgdnGetCachePath(path, cachePath) >= 0) {
+        bgdn_log("irodsRead: read from cache (%s)\n", cachePath);
 
         // read from cache
-		int desc = open(cachePath, O_RDWR);
+	    int desc = open(cachePath, O_RDWR);
         lseek(desc, offset, SEEK_SET);
         status = read(desc, buf, size);
         close(desc);
-    } else {    
-        printf("no cache\n");
+    } else {
+        bgdn_log("irodsRead: read from irods\n");
         descInx = fi->fh;
 
         if (checkFuseDesc (descInx) < 0) {
@@ -820,7 +808,6 @@ struct fuse_file_info *fi)
 
         status = _ifuseRead (&IFuseDesc[descInx], buf, size, offset);
     }
-
     return status;
 }
 
