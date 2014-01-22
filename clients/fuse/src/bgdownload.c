@@ -232,7 +232,7 @@ _download(const char *path, struct stat *stbufIn)
     // actual download
     bgdn_log("_download: start iget - %s\n", path);
     char commandBuffer[MAX_NAME_LEN];
-    snprintf(commandBuffer, MAX_NAME_LEN, "./iget -f -V %s %s", path+1, tempCachePath);
+    snprintf(commandBuffer, MAX_NAME_LEN, "iget -f -V %s %s", path+1, tempCachePath);
     status = system(commandBuffer);
 
     bgdn_log("_download: complete iget - %s\n", path);
