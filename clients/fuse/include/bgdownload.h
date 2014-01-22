@@ -36,7 +36,7 @@ extern "C" {
 int bgdnInitialize();
 int bgdnUninitialize();
 
-int bgdnDownload(const char *path, int flags);
+int bgdnDownload(const char *path, struct stat *stbuf);
 int bgdnHasCache(const char *inPath);
 int bgdnGetCachePath(const char *inPath, char *cachePath);
 

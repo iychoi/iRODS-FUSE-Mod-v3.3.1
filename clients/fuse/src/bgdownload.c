@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #include <time.h>
 #include "irodsFs.h"
 #include "iFuseOper.h"
@@ -35,13 +36,13 @@ typedef struct _bgdn_thread_data
 {
     int thread_no;
     char path[MAX_NAME_LEN];
-    int flags;
+    struct stat stbuf;
 } bgdn_thread_data;
 
 
 // function definitions
 void *_downloadThread(void *arg);
-int _download(const char *path, int flags);
+int _download(const char *path, struct stat *stbufIn);
 int _completeDownload(const char *inPath, const char *destPath, struct stat *stbuf);
 int _hasValidCache(const char *inPath, struct stat *stbuf);
 int _getCachePath(const char *inPath, char *cachePath);
@@ -64,6 +65,7 @@ int
 bgdnInitialize()
 {
     int i;
+
     for(i=0;i<MAX_NUM_OF_CACHES;i++) {
         memset(&caches[i], 0, sizeof(bgdn_cache_info));
     }
@@ -100,7 +102,7 @@ bgdnUninitialize()
 }
 
 int
-bgdnDownload(const char *path, int flags)
+bgdnDownload(const char *path, struct stat *stbuf)
 {
     int status;
     int i;
@@ -131,8 +133,7 @@ bgdnDownload(const char *path, int flags)
             // filling thread_data
             param.thread_no = i;
             rstrcpy(param.path, (char*)path, MAX_NAME_LEN);
-            param.flags = flags;
-            
+            memcpy(&param.stbuf, stbuf, sizeof(struct stat));
             break;
         }
     }
@@ -172,7 +173,7 @@ void *_downloadThread(void *arg)
 
     bgdn_log("_downloadThread: new thread is now running - %s\n", param->path);
 
-    status = _download(param->path, param->flags);
+    status = _download(param->path, &param->stbuf);
     if(status != 0) {
         bgdn_log("_downloadThread: download error - %d\n", status);
     }
@@ -188,43 +189,20 @@ void *_downloadThread(void *arg)
 }
 
 int
-_download(const char *path, int flags)
+_download(const char *path, struct stat *stbufIn)
 {
     int status;
-    dataObjInp_t dataObjInp;
     struct stat stbuf;
     char tempCachePath[MAX_NAME_LEN];
     char cachePath[MAX_NAME_LEN];
-    char objPath[MAX_NAME_LEN];
-    iFuseConn_t *iFuseConn = NULL;
     off_t freespc;
 
     bgdn_log("_download: downloading file - %s\n", path);
 
-    memset (&dataObjInp, 0, sizeof (dataObjInp));
-	dataObjInp.openFlags = flags;
+    memcpy(&stbuf, stbufIn, sizeof(struct stat));
 
-	status = parseRodsPathStr ((char *) (path + 1) , &MyRodsEnv, objPath);
-	rstrcpy(dataObjInp.objPath, objPath, MAX_NAME_LEN);
-	if (status < 0) {
-		rodsLogError (LOG_ERROR, status, "_download: parseRodsPathStr of %s error", path);
-		/* use ENOTDIR for this type of error */
-		return -ENOTDIR;
-	}
-
-	iFuseConn = getAndUseConnByPath((char *) path, &MyRodsEnv, &status);
-	/* status = getAndUseIFuseConn(&iFuseConn, &MyRodsEnv); */
-	if(status < 0) {
-		rodsLogError (LOG_ERROR, status, "_download: cannot get connection for %s error", path);
-		/* use ENOTDIR for this type of error */
-		return -ENOTDIR;
-	}
-
-	status = _irodsGetattr (iFuseConn, path, &stbuf);
-
-    if ((status = _hasValidCache(path, &stbuf)) == 0) {
+	if ((status = _hasValidCache(path, &stbuf)) == 0) {
         // have cache
-        unuseIFuseConn(iFuseConn);
         return 0;
     }
 
@@ -234,7 +212,6 @@ _download(const char *path, int flags)
     freespc = _getCacheFreeSpace();
     if(freespc < stbuf.st_size) {
         bgdn_log("_download: cache space not enough - %lu (%lu in free)\n", stbuf.st_size, freespc);
-        unuseIFuseConn(iFuseConn);
         return -ENOSPC;
     }
 
@@ -242,29 +219,24 @@ _download(const char *path, int flags)
     rodsLog (LOG_DEBUG, "_download: caching %s", path);
     bgdn_log("_download: caching - %s\n", path);
 	if ((status = _getCacheDownloadingPath(path, tempCachePath)) < 0) {
-		unuseIFuseConn(iFuseConn);
 		return status;
 	}
 
     if ((status = _getCachePath(path, cachePath)) < 0) {
-		unuseIFuseConn(iFuseConn);
         return status;
     }
     
     // make cache dir
     _prepareDir(cachePath);
 
-	/* get the file to local cache */
-	dataObjInp.dataSize = stbuf.st_size;
+    // actual download
+    bgdn_log("_download: start iget - %s\n", path);
+    char commandBuffer[MAX_NAME_LEN];
+    snprintf(commandBuffer, MAX_NAME_LEN, "./iget -f -V %s %s", path+1, tempCachePath);
+    status = system(commandBuffer);
 
-	status = rcDataObjGet (iFuseConn->conn, &dataObjInp, tempCachePath);
-	unuseIFuseConn(iFuseConn);
-
-	if (status < 0) {
-		rodsLogError (LOG_ERROR, status, "_download: rcDataObjGet of %s error", dataObjInp.objPath);
-		return status;
-	}
-
+    bgdn_log("_download: complete iget - %s\n", path);
+    
     return _completeDownload(tempCachePath, cachePath, &stbuf);
 }
 

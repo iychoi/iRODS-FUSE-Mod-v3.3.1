@@ -737,7 +737,7 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
         // iychoi
         // initialize background downloading
         // this my fail if running background tasks are too many
-        bgdnDownload(path, flags);
+        bgdnDownload(path, &stbuf);
     } else {
 		rodsLog (LOG_DEBUG, "irodsOpenWithReadCache: caching %s", path);
 		if ((status = getFileCachePath (path, cachePath)) < 0) {
@@ -789,6 +789,7 @@ struct fuse_file_info *fi)
 
     // iychoi
     // check local cache
+    bgdn_log("irodsRead: read %s, o:%ld, l:%ld\n", path, offset, size);
     if(bgdnHasCache(path) >= 0 &&
         bgdnGetCachePath(path, cachePath) >= 0) {
         bgdn_log("irodsRead: read from cache (%s)\n", cachePath);
