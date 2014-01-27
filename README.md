@@ -25,14 +25,19 @@ Settings & Misc.
 
 Background downloading will execute "iget" program which is a part of "iCommand" tools. Thus, "iCommand" tools need to be installed on your system. Plus, a path to "iget" must be registered on PATH environment.
 
-Because "iget" and "irods-fuse" are different processes, their iRODS configurations can be different. iRODS client generally creates "~/.irods directory" to store iRODS configurations and creates files named "~/.irods/.irodsEnv" and "~/.irods/.irodsEnv.<process_id>". If you want to mount a specific directory through "irods-fuse", you should modify the file "~/.irods/.irodsEnv". Here's an example.
+Because "iget" and "irods-fuse" are different processes, their iRODS configurations can be different. iRODS client generally creates "~/.irods directory" to store iRODS configurations and creates files named "~/.irods/.irodsEnv" and "~/.irods/.irodsEnv.<process_id>".
+
+If you want to mount a specific directory through "irods-fuse", you should modify the file "~/.irods/.irodsEnv". Here's an example.
 
 [~/.irods/.irodsEnv]
+```
 irodsHost <your irods host>
 irodsPort <host irods port>
 irodsUserName <user name>
 irodsZone <zone>
 irodsCwd=<irods path to the directory you would like to mount>
+```
+
 
 
 
