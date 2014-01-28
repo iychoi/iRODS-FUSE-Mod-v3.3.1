@@ -10,6 +10,18 @@ Original read performance of iRODS FUSE client is way slower than "iget" command
 
 In this project, read operations will be boosted by running "iget" in background. While reading a big file from iRODS server, background "iget" will download whole file to local disk. Later read operations will be the same as simple local file read.
 
+Cache Policy
+------------
+
+Here's basic policy on controlling cache.
+- When the program starts, clear all cache
+- When the program exits, clear all cache
+- When the file is opened, it tries to download in background and put it in cache
+- When the file size is bigger than available space in local disk, it doesn't download
+- When cached file's last modified time or file size is not matching with those of remote original file, the cache is out-dated
+- When the number of cached file is bigger than threshold (Threshold = 100), evicts the oldest cache
+
+
 Modified Sources
 ----------------
 
