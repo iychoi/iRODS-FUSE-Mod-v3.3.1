@@ -39,6 +39,8 @@ typedef struct _bgdn_thread_data
     struct stat stbuf;
 } bgdn_thread_data;
 
+char igetPath[MAX_NAME_LEN];
+
 
 // function definitions
 void *_downloadThread(void *arg);
@@ -65,6 +67,7 @@ int
 bgdnInitialize()
 {
     int i;
+    char* icommandEnv;
 
     for(i=0;i<MAX_NUM_OF_CACHES;i++) {
         memset(&caches[i], 0, sizeof(bgdn_cache_info));
@@ -77,6 +80,20 @@ bgdnInitialize()
     pthread_mutex_init(&threadLock, NULL);
 
     _prepareCacheDir();
+
+    // find iget path
+    icommandEnv = getenv(ICOMMAND_PATH_ENVIRONMENT);
+    if(strlen(icommandEnv) > 0) {
+        if(icommandEnv[strlen(icommandEnv)-1] == '/') {
+            snprintf(igetPath, MAX_NAME_LEN, "%s%s", icommandEnv, ICOMMAND_IGET_NAME);
+        } else {
+            snprintf(igetPath, MAX_NAME_LEN, "%s/%s", icommandEnv, ICOMMAND_IGET_NAME);
+        }
+        bgdn_log("bgdnInitialize: found iget (icommand) path : %s\n", igetPath);
+    } else {
+        snprintf(igetPath, MAX_NAME_LEN, "%s", ICOMMAND_IGET_NAME);
+        bgdn_log("bgdnInitialize: failed to find iget (icommand) path -- using default : %s\n", igetPath);
+    }
 
     return (0);
 }

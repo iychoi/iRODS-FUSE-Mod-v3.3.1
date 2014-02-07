@@ -32,6 +32,9 @@ extern "C" {
 #define DOWNLOAD_THREAD_RUNNING    1
 #define DOWNLOAD_THREAD_IDLE    0
 
+#define ICOMMAND_PATH_ENVIRONMENT   "ICOMMAND_PATH"
+#define ICOMMAND_IGET_NAME         "iget"
+
 // public functions
 int bgdnInitialize();
 int bgdnUninitialize();
