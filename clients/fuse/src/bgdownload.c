@@ -83,7 +83,7 @@ bgdnInitialize()
 
     // find iget path
     icommandEnv = getenv(ICOMMAND_PATH_ENVIRONMENT);
-    if(strlen(icommandEnv) > 0) {
+    if(icommandEnv != NULL && strlen(icommandEnv) > 0) {
         if(icommandEnv[strlen(icommandEnv)-1] == '/') {
             snprintf(igetPath, MAX_NAME_LEN, "%s%s", icommandEnv, ICOMMAND_IGET_NAME);
         } else {
