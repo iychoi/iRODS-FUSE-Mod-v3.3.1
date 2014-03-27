@@ -127,6 +127,7 @@ bgdnDownload(const char *path, struct stat *stbuf)
     bgdn_thread_data param;
 
     //cout << "startBgDownload invoked" << endl;
+    bgdn_log("bgdnDownload: download started\n");
 
     // check downloading is running
     status = pthread_mutex_lock(&threadLock);
@@ -136,6 +137,7 @@ bgdnDownload(const char *path, struct stat *stbuf)
         if(strcmp(mythread->path, path) == 0) {
             // same file is already in downloading
             status = pthread_mutex_unlock(&threadLock);
+            bgdn_log("bgdnDownload: download is already running\n");
             return -1;
         }
     }

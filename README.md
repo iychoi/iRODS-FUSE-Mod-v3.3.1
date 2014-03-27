@@ -35,9 +35,13 @@ Here's the list of modified or added source files.
 Settings & Misc.
 ----------------
 
-Background downloading will execute "iget" program which is a part of "iCommand" tools. Thus, "iCommand" tools need to be installed on your system. Plus, a path to "iget" must be registered on PATH environment.
+Background downloading will execute "iget" program which is a part of "iCommand" tools. Thus, "iCommand" tools need to be installed on your system. Plus, a path to "iget" must be registered on environment.
 
-Since "iget" and "irods-fuse" are different processes, their iRODS configurations can be different. iRODS client generally creates "~/.irods" directory to store iRODS configuration files and creates files named "~/.irods/.irodsEnv" and "~/.irods/.irodsEnv.<process_id>" in it. Because of this configuration isolation, we need to make sure "iget" and "irods-fuse" refers the same configuration. For example, current-working-path can be differ between "iget" and "irods-fuse".
+```
+export ICOMMAND_PATH=/opt/irods/clients/icommands/bin
+```
+
+As "iget" and "irods-fuse" will run as different processes, they use different iRODS configuration files. iRODS client generally creates "~/.irods" directory to store iRODS configuration files and creates files named "~/.irods/.irodsEnv" and "~/.irods/.irodsEnv.<process_id>" in it. Because of this configuration isolation, we need to make sure "iget" and "irods-fuse" refers the same configuration. For example, current-working-path can be differ between "iget" and "irods-fuse".
 
 If you want to mount a specific directory through "irods-fuse" and make "iget" to refer the same directory, you should modify the file "~/.irods/.irodsEnv". Here's an example.
 
