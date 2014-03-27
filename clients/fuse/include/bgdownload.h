@@ -21,11 +21,11 @@ extern "C" {
 	)																	\
 }
 
-#define BGDOWNLOAD_CACHE_PARENT_PATH    "/tmp"
-#define BGDOWNLOAD_CACHE_PATH "/tmp/irods_bgdncache"
+#define BGDOWNLOAD_CACHE_PARENT_PATH    "/vol"
+#define BGDOWNLOAD_CACHE_PATH "/vol/irods_bgdncache"
 
 #define MAX_NUM_OF_CACHES   30
-#define MAX_SIZE_OF_CACHES  (1024 * 1024 * 1024)
+#define MAX_SIZE_OF_CACHES  (1024 * 1024 * 1024 * 50)
 
 #define MAX_BG_THREADS  5
 
