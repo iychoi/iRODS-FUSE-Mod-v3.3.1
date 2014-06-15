@@ -17,3 +17,9 @@ FUSE Configuration Options
 - "--preload-cache-dir" : specify preload cache directory, if not specified, "/tmp/fusePreloadCache/" will be used
 - "--preload-cache-max" : specify preload cache max limit (in bytes)
 
+If you just want to use the preloading without configuring other parameters, you will need to give "--preload" option. If you use any other options that relate to the preloading, you don't need to give "--preload". Those options will also set "--preload" option by default.
+
+Performance Metrics
+-------------------
+
+To be filled.
