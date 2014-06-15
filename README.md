@@ -22,4 +22,13 @@ If you just want to use the preloading without configuring other parameters, you
 Performance Metrics
 -------------------
 
-To be filled.
+Tested with iPlant Atmosphere virtual instance and iPlant DataStore(iRODS).
+
+File Size | iRODS-FUSE (Unmodified) | iRODS-FUSE-Mod
+--- | --- | ---
+10MB | 0.7 seconds | 0.3 seconds
+50MB | 1.7 seconds | 1.3 seconds
+100MB | 3.3 seconds | 2.1 seconds
+500MB | 17 seconds | 7.4 seconds
+1GB | 34.7 seconds | 14.1 seconds
+2GB | 71.0 seconds | 34.5 seconds
