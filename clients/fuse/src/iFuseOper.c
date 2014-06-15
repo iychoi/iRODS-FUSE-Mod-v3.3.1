@@ -734,10 +734,12 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
         }
         
 #ifdef ENABLE_PRELOAD
-        // preload irods file
-        // this may fail if background tasks are already running too many
-        if (preloadFile(path, &stbuf) == 0) {
-            rodsLog (LOG_DEBUG, "irodsOpen: preload %s", path);
+        if (isPreloadEnabled() == 0) {
+            // preload irods file
+            // this may fail if background tasks are already running too many
+            if (preloadFile(path, &stbuf) == 0) {
+                rodsLog (LOG_DEBUG, "irodsOpen: preload %s", path);
+            }
         }
 #endif
     } else {
@@ -791,13 +793,13 @@ struct fuse_file_info *fi)
 #ifdef ENABLE_PRELOAD
     // check local cache
     rodsLog (LOG_DEBUG, "irodsRead: read %s, o:%ld, l:%ld\n", path, offset, size);
-    if (isPreloaded (path) >= 0) {
+    if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
         char preloadedFilePath[MAX_NAME_LEN];
         if (findPreloadPath (path, preloadedFilePath) >= 0) {
             rodsLog (LOG_DEBUG, "irodsRead: read from a preloaded file (%s)\n", preloadedFilePath);
 
             // read from cache
-	        int desc = open (preloadedFilePath, O_RDWR);
+            int desc = open (preloadedFilePath, O_RDWR);
             lseek (desc, offset, SEEK_SET);
             status = read (desc, buf, size);
             close (desc);
@@ -805,7 +807,6 @@ struct fuse_file_info *fi)
     } else {
         rodsLog (LOG_DEBUG, "irodsRead: read from irods\n");
 #endif
-
         descInx = fi->fh;
 
         if (checkFuseDesc (descInx) < 0) {

@@ -108,6 +108,15 @@ uninitPreload (preloadConfig_t *preloadConfig) {
 }
 
 int
+isPreloadEnabled() {
+    // check whether preload is enabled
+    if(PreloadConfig.preload == 0) {
+        return -1;
+    }
+    return 0;
+}
+
+int
 preloadFile (const char *path, struct stat *stbuf) {
     int status;
     preloadThreadInfo_t *threadInfo = NULL;

@@ -285,6 +285,8 @@ initPreload (preloadConfig_t *preloadConfig, rodsEnv *myRodsEnv, rodsArguments_t
 int
 uninitPreload (preloadConfig_t *preloadConfig);
 int
+isPreloadEnabled();
+int
 preloadFile (const char *path, struct stat *stbuf);
 int
 isPreloaded(const char *path);
