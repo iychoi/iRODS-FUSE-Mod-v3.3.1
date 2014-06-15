@@ -14,6 +14,8 @@
 #define CACHE_FILE_FOR_NEWLY_CREATED     1
 #endif
 
+#define ENABLE_PRELOAD          1
+
 #define MAX_BUF_CACHE   2
 #define MAX_IFUSE_DESC   512
 #define MAX_READ_CACHE_SIZE   (1024*1024)	/* 1 mb */
@@ -25,6 +27,7 @@
 #define MAX_NEWLY_CREATED_TIME	5	/* in sec */
 
 #define FUSE_CACHE_DIR	"/tmp/fuseCache"
+#define FUSE_PRELOAD_CACHE_DIR  "/tmp/fusePreloadCache"
 
 #define IRODS_FREE		0
 #define IRODS_INUSE	1 
@@ -34,6 +37,8 @@
 #include <boost/thread/thread.hpp>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/condition_variable.hpp>
+#else
+#include <pthread.h>
 #endif
 // =-=-=-=-=-=-=-
 
@@ -128,6 +133,40 @@ typedef struct newlyCreatedFile {
 #define FUSE_FILE_CACHE_FREE(c) ((c).desc == NULL && (c).pathCache == NULL)
 
 #define FUSE_FILE_CACHE_EXPIRED(cacheTime, c) (cachedTime - (c).cachedTime  >= MAX_NEWLY_CREATED_TIME)
+
+typedef struct PreloadConfig {
+    int preload;
+    char *cachePath;
+    rodsLong_t cacheMaxSize; /* 0 means unlimited */
+} preloadConfig_t;
+
+#define NUM_PRELOAD_CACHE_HASH_SLOT	201
+#define NUM_PRELOAD_THREAD_HASH_SLOT	201
+
+typedef struct PreloadThreadInfo {
+#ifdef USE_BOOST
+    boost::thread* thread;
+#else
+    pthread_t thread;
+#endif
+    char *path;
+    int running;
+#ifdef USE_BOOST
+    boost::mutex* mutex;
+#else
+    pthread_mutex_t lock;
+#endif
+} preloadThreadInfo_t;
+
+#define PRELOAD_THREAD_RUNNING    1
+#define PRELOAD_THREAD_IDLE    0
+
+typedef struct PreloadThreadData {
+    char *path;
+    struct stat stbuf;
+    preloadThreadInfo_t *threadInfo;
+} preloadThreadData_t;
+
 #ifdef  __cplusplus
 extern "C" {
 #endif
@@ -241,8 +280,23 @@ renmeLocalPath (char *from, char *to, char *toIrodsPath);
 int	_chkCacheExpire (pathCacheQue_t *pathCacheQue);
 int _matchAndLockPathCache (char *inPath, pathCacheQue_t *pathQueArray, pathCache_t **outPathCache);
 int _iFuseConnInuse (iFuseConn_t *iFuseConn);
+int
+initPreload (preloadConfig_t *preloadConfig, rodsEnv *myRodsEnv, rodsArguments_t *myRodsArgs);
+int
+uninitPreload (preloadConfig_t *preloadConfig);
+int
+preloadFile (const char *path, struct stat *stbuf);
+int
+isPreloaded(const char *path);
+int
+findPreloadPath(const char *path, char *preloadPath);
 #ifdef  __cplusplus
 }
 #endif
+
+/***************************************
+Test Constants
+***************************************/
+#define MAX_SIZE_OF_CACHES  (1024 * 1024 * 1024 * 50)
 
 #endif	/* I_FUSE_LIB_H */

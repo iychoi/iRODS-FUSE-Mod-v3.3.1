@@ -42,12 +42,14 @@ typedef struct ConcurrentList {
 	extern boost::thread*            ConnManagerThr;
 	extern boost::mutex              ConnManagerLock;
 	extern boost::condition_variable ConnManagerCond;
+    extern boost::mutex              PreloadLock;
 #else
 	#include <pthread.h>
 	extern pthread_mutex_t PathCacheLock;
 	extern pthread_t ConnManagerThr;
 	extern pthread_mutex_t ConnManagerLock;
 	extern pthread_cond_t ConnManagerCond;
+    extern pthread_mutex_t PreloadLock;
 #endif
 
 #ifdef USE_BOOST

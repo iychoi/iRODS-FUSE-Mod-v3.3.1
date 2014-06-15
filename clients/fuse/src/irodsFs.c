@@ -14,11 +14,13 @@
 #include "irodsFs.h"
 #include "iFuseOper.h"
 #include "iFuseLib.h"
-#include "bgdownload.h"
 
 /* some global variables */
 
 extern rodsEnv MyRodsEnv;
+#ifdef ENABLE_PRELOAD
+preloadConfig_t MyPreloadConfig;
+#endif
 
 #ifdef  __cplusplus
 struct fuse_operations irodsOper; 
@@ -47,6 +49,13 @@ static struct fuse_operations irodsOper =
   .fsync = irodsFsync,
   .flush = irodsFlush,
 };
+#endif
+
+#ifdef ENABLE_PRELOAD
+int parsePreloadCmdLineOpt (int argc, char **argv, PreloadConfig *preloadConfig);
+int releasePreloadConfig (PreloadConfig *preloadConfig);
+int makeCleanCmdLineOpt (int argc, char **argv, int *argc2, char ***argv2);
+int releaseUserCreatedCmdLineOpt (int argc, char **argv);
 #endif
 
 void usage ();
@@ -116,6 +125,9 @@ irodsOper.flush = irodsFlush;
     int status;
     rodsArguments_t myRodsArgs;
     char *optStr;
+    
+    int argc2;
+    char** argv2;
 
 #ifdef  __cplusplus
     bzero (&irodsOper, sizeof (irodsOper));
@@ -141,9 +153,25 @@ irodsOper.flush = irodsFlush;
     irodsOper.fsync = irodsFsync;
     irodsOper.flush = irodsFlush;
 #endif
+
+#ifdef ENABLE_PRELOAD
+    /* handle the preload command line options first */
+    status = parsePreloadCmdLineOpt (argc, argv, &MyPreloadConfig);
+
+    if (status < 0) {
+        printf("Use -h for help.\n");
+        exit (1);
+    }
+
+    status = makeCleanCmdLineOpt (argc, argv, &argc2, &argv2);
+
+    argc = argc2;
+    argv = argv2;
+#endif
+
     optStr = "hdo:";
 
-    status = parseCmdLineOpt (argc, argv, optStr, 0, &myRodsArgs);
+    status = parseCmdLineOpt (argc, argv, optStr, 0, &myRodsArgs);    
 
     if (status < 0) {
         printf("Use -h for help.\n");
@@ -172,15 +200,22 @@ irodsOper.flush = irodsFlush;
     initConn();
     initFileCache();
 
-    // iychoi
-    // initialize background downloading
-    bgdnInitialize();
+#ifdef ENABLE_PRELOAD
+    // initialize preload
+    initPreload(&MyPreloadConfig, &MyRodsEnv, &myRodsArgs);
+#endif
 
     status = fuse_main (argc, argv, &irodsOper, NULL);
 
-    // iychoi
-    // uninitialize background downloading
-    bgdnUninitialize();
+#ifdef ENABLE_PRELOAD
+    /* release the preload command line options */
+    releaseUserCreatedCmdLineOpt (argc, argv);
+
+    // uninitialize preload
+    uninitPreload (&MyPreloadConfig);
+
+    releasePreloadConfig (&MyPreloadConfig);
+#endif
 
     disconnectAll ();
 
@@ -191,15 +226,137 @@ irodsOper.flush = irodsFlush;
     }
 }
 
+#ifdef ENABLE_PRELOAD
+int 
+parsePreloadCmdLineOpt (int argc, char **argv, PreloadConfig *preloadConfig) {
+    int i;
+    memset(preloadConfig, 0, sizeof(preloadConfig_t));
+
+    for (i=0;i<argc;i++) {
+        if (strcmp("--preload", argv[i])==0) {
+            preloadConfig->preload=True;
+            argv[i]="-Z";
+        }
+        if (strcmp("--preload-cache-dir", argv[i])==0) {
+            argv[i]="-Z";
+            if (i + 2 < argc) {
+                if (*argv[i+1] == '-') {
+                    rodsLog (LOG_ERROR,
+                    "--preload-cache-dir option takes a directory argument");
+                    return USER_INPUT_OPTION_ERR;
+                }
+                preloadConfig->preload=True;
+                preloadConfig->cachePath=strdup(argv[i+1]);
+                argv[i+1]="-Z";
+            }
+        }
+        if (strcmp("--preload-cache-max", argv[i])==0) {
+            argv[i]="-Z";
+            if (i + 2 < argc) {
+                if (*argv[i+1] == '-') {
+                    rodsLog (LOG_ERROR,
+                    "--preload-cache-max option takes an size argument");
+                    return USER_INPUT_OPTION_ERR;
+                }
+                preloadConfig->preload=True;
+                preloadConfig->cacheMaxSize=strtoll(argv[i+1], 0, 0);
+                argv[i+1]="-Z";
+            }
+        }
+    }
+
+    // set default
+    if(preloadConfig->cachePath == NULL) {
+        preloadConfig->cachePath=strdup(FUSE_PRELOAD_CACHE_DIR);
+    }
+
+    return(0);
+}
+
+int
+releasePreloadConfig (PreloadConfig *preloadConfig) {
+    if (preloadConfig==NULL) {
+        return -1;
+    }
+
+    if (preloadConfig->cachePath!=NULL) {
+        free(preloadConfig->cachePath);
+    }
+
+    return(0);
+}
+
+int
+makeCleanCmdLineOpt (int argc, char **argv, int *argc2, char ***argv2) {
+    int i;
+    int actual_argc = 0;
+    int j;
+
+    if (argc2==NULL) {
+        return -1;
+    }
+    
+    if (argv2==NULL) {
+        return -1;
+    }
+
+    for (i=0;i<argc;i++) {
+        if (strcmp("-Z", argv[i])!=0) {
+            actual_argc++;
+        }
+    }
+
+    *argv2=(char**)malloc(sizeof(char*) * actual_argc);
+
+    j=0;
+    for (i=0;i<argc;i++) {
+        if (strcmp("-Z", argv[i])!=0) {
+            (*argv2)[j]=strdup(argv[i]);
+            j++;
+        }
+    }
+
+    *argc2=actual_argc;
+    return(0);
+}
+
+int
+releaseUserCreatedCmdLineOpt (int argc, char **argv) {
+    int i;
+    
+    if (argv!=NULL) {
+        for (i=0;i<argc;i++) {
+            if (argv[i]!=NULL) {
+                free(argv[i]);
+            }
+        }
+        free(argv);
+    }
+    
+    return(0);
+}
+#endif
+
 void
 usage ()
 {
    char *msgs[]={
+#ifdef ENABLE_PRELOAD
+   "Usage : irodsFs [-hd] [--preload] [--preload-cache-dir dir] [--preload-cache-max maxsize] [-o opt,[opt...]]",
+#else
    "Usage : irodsFs [-hd] [-o opt,[opt...]]",
+#endif
 "Single user iRODS/Fuse server",
 "Options are:",
 " -h  this help",
 " -d  FUSE debug mode",
+
+#ifdef ENABLE_PRELOAD
+" --preload  use preload",
+" --preload-cache-dir  specify preload cache directory",
+" --preload-cache-max  specify preload cache max limit (in bytes)", 
+#endif
+
 " -o  opt,[opt...]  FUSE mount options",
 ""};
     int i;

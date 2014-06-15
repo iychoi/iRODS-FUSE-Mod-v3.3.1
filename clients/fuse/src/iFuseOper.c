@@ -9,7 +9,6 @@
 #include "irodsFs.h"
 #include "iFuseOper.h"
 #include "miscUtil.h"
-#include "bgdownload.h"
 
 int
 irodsGetattr (const char *path, struct stat *stbuf)
@@ -734,10 +733,13 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
             return -ENOENT;
         }
         
-        // iychoi
-        // initialize background downloading
-        // this my fail if running background tasks are too many
-        bgdnDownload(path, &stbuf);
+#ifdef ENABLE_PRELOAD
+        // preload irods file
+        // this may fail if background tasks are already running too many
+        if (preloadFile(path, &stbuf) == 0) {
+            rodsLog (LOG_DEBUG, "irodsOpen: preload %s", path);
+        }
+#endif
     } else {
 		rodsLog (LOG_DEBUG, "irodsOpenWithReadCache: caching %s", path);
 		if ((status = getFileCachePath (path, cachePath)) < 0) {
@@ -783,24 +785,27 @@ struct fuse_file_info *fi)
 {
     int descInx;
     int status;
-    char cachePath[MAX_NAME_LEN];
 
     rodsLog (LOG_DEBUG, "irodsRead: %s", path);
 
-    // iychoi
+#ifdef ENABLE_PRELOAD
     // check local cache
-    bgdn_log("irodsRead: read %s, o:%ld, l:%ld\n", path, offset, size);
-    if(bgdnHasCache(path) >= 0 &&
-        bgdnGetCachePath(path, cachePath) >= 0) {
-        bgdn_log("irodsRead: read from cache (%s)\n", cachePath);
+    rodsLog (LOG_DEBUG, "irodsRead: read %s, o:%ld, l:%ld\n", path, offset, size);
+    if (isPreloaded (path) >= 0) {
+        char preloadedFilePath[MAX_NAME_LEN];
+        if (findPreloadPath (path, preloadedFilePath) >= 0) {
+            rodsLog (LOG_DEBUG, "irodsRead: read from a preloaded file (%s)\n", preloadedFilePath);
 
-        // read from cache
-	    int desc = open(cachePath, O_RDWR);
-        lseek(desc, offset, SEEK_SET);
-        status = read(desc, buf, size);
-        close(desc);
+            // read from cache
+	        int desc = open (preloadedFilePath, O_RDWR);
+            lseek (desc, offset, SEEK_SET);
+            status = read (desc, buf, size);
+            close (desc);
+        }
     } else {
-        bgdn_log("irodsRead: read from irods\n");
+        rodsLog (LOG_DEBUG, "irodsRead: read from irods\n");
+#endif
+
         descInx = fi->fh;
 
         if (checkFuseDesc (descInx) < 0) {
@@ -808,7 +813,9 @@ struct fuse_file_info *fi)
         }
 
         status = _ifuseRead (&IFuseDesc[descInx], buf, size, offset);
+#ifdef ENABLE_PRELOAD
     }
+#endif
     return status;
 }
 

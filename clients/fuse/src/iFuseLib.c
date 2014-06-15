@@ -210,7 +210,6 @@ char *irodsPath)
 int
 renmeLocalPath (char *from, char *to, char *toIrodsPath)
 {
-    int status;
     pathCache_t *fromPathCache = NULL;
     pathCache_t *tmpPathCache = NULL;
 

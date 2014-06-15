@@ -20,6 +20,8 @@
 	boost::thread*            ConnManagerThr;
 	boost::mutex              ConnManagerLock;
 	boost::condition_variable ConnManagerCond;
+    /* boost::mutex PreloadLock; */
+    boost::mutex              PreloadLock;        
 #else
 	/*pthread_mutex_t DescLock;*/
 	/*pthread_mutex_t ConnLock;*/
@@ -28,6 +30,8 @@
 	pthread_t ConnManagerThr;
 	pthread_mutex_t ConnManagerLock;
 	pthread_cond_t ConnManagerCond;
+    /* pthread_mutex_t PreloadLock; */
+    pthread_mutex_t PreloadLock;
 #endif
 
 #ifdef USE_BOOST
