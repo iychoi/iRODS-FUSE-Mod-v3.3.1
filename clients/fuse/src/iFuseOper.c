@@ -349,6 +349,13 @@ irodsUnlink (const char *path)
 #ifdef CACHE_FUSE_PATH
 	pathNotExist ((char *) path);
 #endif
+
+#ifdef ENABLE_PRELOAD
+        if (isPreloadEnabled() == 0) {
+            // remove preloaded cache
+            invalidatePreloadedCache(path);
+        }
+#endif
 	status = 0;
     } else {
 	if (isReadMsgError (status)) {
@@ -395,6 +402,13 @@ irodsRmdir (const char *path)
     if (status >= 0) {
 #ifdef CACHE_FUSE_PATH
         pathNotExist ((char *) path);
+#endif
+
+#ifdef ENABLE_PRELOAD
+        if (isPreloadEnabled() == 0) {
+            // remove preloaded cache
+            invalidatePreloadedCache(path);
+        }
 #endif
         status = 0;
     } else {
@@ -469,6 +483,13 @@ irodsRename (const char *from, const char *to)
     if (status >= 0) {
 #ifdef CACHE_FUSE_PATH
     	status = renmeLocalPath ((char *) from, (char *) to, (char *) toIrodsPath);
+#endif
+
+#ifdef ENABLE_PRELOAD
+        if (isPreloadEnabled() == 0) {
+            // rename preloaded cache
+            status = renamePreloadedCache (from, to);
+        }
 #endif
     } else {
 		if (isReadMsgError (status)) {
@@ -629,6 +650,14 @@ irodsTruncate (const char *path, off_t size)
             tmpPathCache->stbuf.st_size = size;
         }
         UNLOCK_STRUCT(*tmpPathCache);
+
+#ifdef ENABLE_PRELOAD
+        if (isPreloadEnabled() == 0) {
+            // truncate
+            status = truncatePreloadedCache (path, size);
+        }
+#endif
+
         status = 0;
     } else {
 		rodsLogError (LOG_ERROR, status,
@@ -734,11 +763,13 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
         }
         
 #ifdef ENABLE_PRELOAD
-        if (isPreloadEnabled() == 0) {
-            // preload irods file
-            // this may fail if background tasks are already running too many
-            if (preloadFile(path, &stbuf) == 0) {
-                rodsLog (LOG_DEBUG, "irodsOpen: preload %s", path);
+        if ((flags & O_ACCMODE) == O_RDONLY) {
+            if (isPreloadEnabled() == 0) {
+                // preload irods file
+                // this may fail if background tasks are already running too many
+                if (preloadFile(path, &stbuf) == 0) {
+                    rodsLog (LOG_DEBUG, "irodsOpen: preload %s", path);
+                }
             }
         }
 #endif

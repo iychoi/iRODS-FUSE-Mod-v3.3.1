@@ -289,6 +289,12 @@ isPreloadEnabled();
 int
 preloadFile (const char *path, struct stat *stbuf);
 int
+invalidatePreloadedCache (const char *path);
+int
+renamePreloadedCache (const char *fromPath, const char *toPath);
+int
+truncatePreloadedCache (const char *path, off_t size);
+int
 isPreloaded(const char *path);
 int
 findPreloadPath(const char *path, char *preloadPath);

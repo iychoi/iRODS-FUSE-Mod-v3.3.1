@@ -46,6 +46,8 @@ int _isDirectory(const char *path);
 int _makeDirs(const char *path);
 int _removeAllCaches();
 int _removeDir(const char *path);
+int _renameCache(const char *fromPath, const char *toPath);
+int _truncateCache(const char *path, off_t size);
 struct timeval _getCurrentTime();
 double _timeDiff(struct timeval a, struct timeval b);
 time_t _convTime(struct timeval);
@@ -195,6 +197,78 @@ preloadFile (const char *path, struct stat *stbuf) {
         rodsLog (LOG_DEBUG, "preloadFile: given file is already preloaded - %s", iRODSPath);
         return (0);
     }
+}
+
+int
+invalidatePreloadedCache (const char *path) {
+    int status;
+    char iRODSPath[MAX_NAME_LEN];
+
+    status = _getiRODSPath(path, iRODSPath);
+    if(status < 0) {
+        rodsLogError(LOG_ERROR, status, "invalidatePreloadedCache: _getiRODSPath error.");
+        rodsLog (LOG_ERROR, "invalidatePreloadedCache: failed to get iRODS path - %s", path);
+        return status;
+    }
+
+    LOCK(PreloadLock);
+
+    status = _invalidateCache(iRODSPath);    
+
+    UNLOCK(PreloadLock);
+
+    return status;
+}
+
+int
+renamePreloadedCache (const char *fromPath, const char *toPath) {
+    int status;
+    char fromiRODSPath[MAX_NAME_LEN];
+    char toiRODSPath[MAX_NAME_LEN];
+
+    status = _getiRODSPath(fromPath, fromiRODSPath);
+    if(status < 0) {
+        rodsLogError(LOG_ERROR, status, "renamePreloadedCache: _getiRODSPath error.");
+        rodsLog (LOG_ERROR, "renamePreloadedCache: failed to get iRODS path - %s", fromPath);
+        return status;
+    }
+
+    status = _getiRODSPath(toPath, toiRODSPath);
+    if(status < 0) {
+        rodsLogError(LOG_ERROR, status, "renamePreloadedCache: _getiRODSPath error.");
+        rodsLog (LOG_ERROR, "renamePreloadedCache: failed to get iRODS path - %s", toPath);
+        return status;
+    }
+
+    LOCK(PreloadLock);
+
+    // directory
+    status = _renameCache(fromiRODSPath, toiRODSPath);
+
+    UNLOCK(PreloadLock);
+
+    return status;
+}
+
+int
+truncatePreloadedCache (const char *path, off_t size) {
+    int status;
+    char iRODSPath[MAX_NAME_LEN];
+
+    status = _getiRODSPath(path, iRODSPath);
+    if(status < 0) {
+        rodsLogError(LOG_ERROR, status, "truncatePreloadedCache: _getiRODSPath error.");
+        rodsLog (LOG_ERROR, "truncatePreloadedCache: failed to get iRODS path - %s", path);
+        return status;
+    }
+
+    LOCK(PreloadLock);
+
+    status = _truncateCache(iRODSPath, size);
+    
+    UNLOCK(PreloadLock);
+
+    return status;
 }
 
 int
@@ -522,20 +596,27 @@ _invalidateCache(const char *path) {
     }
 
     LOCK(PreloadLock);
-    // remove incomplete preload cache if exists
+
     if ((status = _getCacheWorkPath(path, cacheWorkPath)) < 0) {
         UNLOCK(PreloadLock);
         return status;
     }
-
-    unlink(cacheWorkPath);
 
     if ((status = _getCachePath(path, cachePath)) < 0) {
         UNLOCK(PreloadLock);
         return status;
     }
 
-    status = unlink(cachePath);
+    if (_isDirectory(cachePath) == 0) {
+        // directory
+        status = _removeDir(cachePath);
+    } else {
+        // file
+        // remove incomplete preload cache if exists
+        unlink(cacheWorkPath);
+        status = unlink(cachePath);
+    }
+
     UNLOCK(PreloadLock);
 
     return status;
@@ -890,6 +971,54 @@ _makeDirs(const char *path) {
     if(status == -EEXIST) {
         return (0);
     }
+    return status;
+}
+
+int
+_renameCache(const char *fromPath, const char *toPath) {
+    int status;
+    char fromCachePath[MAX_NAME_LEN];
+    char toCachePath[MAX_NAME_LEN];
+
+    rodsLog (LOG_DEBUG, "_renameCache: %s -> %s", fromPath, toPath);
+
+    LOCK(PreloadLock);
+
+    if ((status = _getCachePath(fromPath, fromCachePath)) < 0) {
+        UNLOCK(PreloadLock);
+        return status;
+    }
+
+    if ((status = _getCachePath(toPath, toCachePath)) < 0) {
+        UNLOCK(PreloadLock);
+        return status;
+    }
+
+    status = rename(fromCachePath, toCachePath);
+
+    UNLOCK(PreloadLock);
+
+    return status;
+}
+
+int
+_truncateCache(const char *path, off_t size) {
+    int status;
+    char cachePath[MAX_NAME_LEN];
+
+    rodsLog (LOG_DEBUG, "_truncateCache: %s, %ld", path, size);
+
+    LOCK(PreloadLock);
+
+    if ((status = _getCachePath(path, cachePath)) < 0) {
+        UNLOCK(PreloadLock);
+        return status;
+    }
+
+    status = truncate(cachePath, size);
+
+    UNLOCK(PreloadLock);
+
     return status;
 }
 
