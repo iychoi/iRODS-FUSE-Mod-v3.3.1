@@ -131,6 +131,7 @@ isPreloadEnabled() {
 int
 preloadFile (const char *path, struct stat *stbuf) {
     int status;
+    preloadThreadInfo_t *existingThreadInfo = NULL;
     preloadThreadInfo_t *threadInfo = NULL;
     preloadThreadData_t *threadData = NULL;
     char iRODSPath[MAX_NAME_LEN];
@@ -144,7 +145,17 @@ preloadFile (const char *path, struct stat *stbuf) {
         return status;
     }
 
-    // check the given file is already preloaded
+    // check the given file is already preloaded or being preloading
+    LOCK(PreloadLock);
+
+    // check the given file is preloading
+    existingThreadInfo = (preloadThreadInfo_t *)lookupFromHashTable(PreloadThreadTable, iRODSPath);
+    if(existingThreadInfo != NULL) {
+        rodsLog (LOG_DEBUG, "preloadFile: preloading is already running - %s", iRODSPath);
+        UNLOCK(PreloadLock);
+        return 0;
+    }
+
     if(_hasValidCache(iRODSPath, stbuf) != 0) {
         // invalidate cache - this may fail if cache file does not exists
         _invalidateCache(iRODSPath);
@@ -154,6 +165,7 @@ preloadFile (const char *path, struct stat *stbuf) {
             // cache max size is set
             if(stbuf->st_size > (off_t)PreloadConfig.cacheMaxSize) {
                 rodsLog (LOG_DEBUG, "preloadFile: given file is bigger than cacheMaxSize, canceling preloading - %s", iRODSPath);
+                UNLOCK(PreloadLock);
                 return (0);
             }
 
@@ -163,22 +175,13 @@ preloadFile (const char *path, struct stat *stbuf) {
                 status = _evictOldCache((cacheSize + stbuf->st_size) - (off_t)PreloadConfig.cacheMaxSize);
                 if(status < 0) {
                     rodsLog (LOG_ERROR, "preloadFile: failed to evict old cache");
+                    UNLOCK(PreloadLock);
                     return status;
                 }
             }
         }
 
-        // does not have valid cache
-        // check the given file is preloading
-        LOCK(PreloadLock);
-        threadInfo = (preloadThreadInfo_t *)lookupFromHashTable(PreloadThreadTable, iRODSPath);
-        if(threadInfo != NULL) {
-            rodsLog (LOG_DEBUG, "preloadFile: preloading is already running - %s", iRODSPath);
-            UNLOCK(PreloadLock);
-            return 0;
-        }
-
-        // now, start a new preloading
+        // does not have valid cache. now, start a new preloading
 
         // create a new thread to preload
         threadInfo = (preloadThreadInfo_t *)malloc(sizeof(preloadThreadInfo_t));
@@ -200,13 +203,13 @@ preloadFile (const char *path, struct stat *stbuf) {
 #else
         status = pthread_create(&threadInfo->thread, NULL, _preloadThread, (void *)threadData);
 #endif
-        UNLOCK(PreloadLock);
-
-        return status;
     } else {
         rodsLog (LOG_DEBUG, "preloadFile: given file is already preloaded - %s", iRODSPath);
-        return (0);
+        status = 0;
     }
+
+    UNLOCK(PreloadLock);
+    return status;
 }
 
 int
@@ -252,7 +255,6 @@ renamePreloadedCache (const char *fromPath, const char *toPath) {
 
     LOCK(PreloadLock);
 
-    // directory
     status = _renameCache(fromiRODSPath, toiRODSPath);
 
     UNLOCK(PreloadLock);
@@ -293,7 +295,13 @@ isPreloaded (const char *path) {
         return status;
     }
 
-    return _hasCache(iRODSPath);
+    LOCK(PreloadLock);
+
+    status = _hasCache(iRODSPath);
+
+    UNLOCK(PreloadLock);
+
+    return status;
 }
 
 int
@@ -434,11 +442,16 @@ _download(const char *path, struct stat *stbufIn) {
         return status;
     }
 
+    // be careful when using Lock
+    LOCK(PreloadLock);
     status = _completeDownload(preloadCacheWorkPath, preloadCachePath, stbufIn);
     if(status < 0) {
         rodsLogError(LOG_ERROR, status, "_download: _completeDownload error.");
+        UNLOCK(PreloadLock);
         return status;
     }
+
+    UNLOCK(PreloadLock);
     return 0;
 }
 
@@ -452,8 +465,6 @@ _completeDownload(const char *workPath, const char *cachePath, struct stat *stbu
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
-    LOCK(PreloadLock);
-
     //amtime.actime = stbuf->st_atime;
     amtime.actime = _convTime(_getCurrentTime());
     amtime.modtime = stbuf->st_mtime;
@@ -462,7 +473,6 @@ _completeDownload(const char *workPath, const char *cachePath, struct stat *stbu
     status = utime(workPath, &amtime);
     if(status < 0) {
         rodsLogError(LOG_ERROR, status, "_completeDownload: utime error.");
-        UNLOCK(PreloadLock);
         return status;
     }
 
@@ -470,11 +480,9 @@ _completeDownload(const char *workPath, const char *cachePath, struct stat *stbu
     status = rename(workPath, cachePath);
     if(status < 0) {
         rodsLogError(LOG_ERROR, status, "_completeDownload: rename error.");
-        UNLOCK(PreloadLock);
         return status;
     }
 
-    UNLOCK(PreloadLock);
     return (0);
 }
 
@@ -489,19 +497,13 @@ _hasCache(const char *path) {
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
-    LOCK(PreloadLock);
-
 	if ((status = _getCachePath(path, cachePath)) < 0) {
-        UNLOCK(PreloadLock);
         return status;
     }
 
     if ((status = stat(cachePath, &stbufCache)) < 0) {
-        UNLOCK(PreloadLock);
         return status;
     }
-
-    UNLOCK(PreloadLock);
 
     return (0);
 }
@@ -514,8 +516,6 @@ _getFileSizeRecursive(const char *path) {
     struct dirent *entry;
     struct stat statbuf;
     off_t localSize;
-
-    LOCK(PreloadLock);
 
     dir = opendir(path);
     if (dir != NULL) {
@@ -546,8 +546,6 @@ _getFileSizeRecursive(const char *path) {
         closedir(dir);
     }
 
-    UNLOCK(PreloadLock);
-    
     return accumulatedSize;
 }
 
@@ -562,35 +560,27 @@ _hasValidCache(const char *path, struct stat *stbuf) {
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
-    LOCK(PreloadLock);
-
 	if ((status = _getCachePath(path, cachePath)) < 0) {
-        UNLOCK(PreloadLock);
         return status;
     }
 
     if ((status = stat(cachePath, &stbufCache)) < 0) {
-        UNLOCK(PreloadLock);
         return status;
     }
 
     // compare stbufs
     if (stbufCache.st_size != stbuf->st_size) {
-        UNLOCK(PreloadLock);
         return -1; // invalid size
     }
 
     if (stbufCache.st_mtim.tv_sec != stbuf->st_mtim.tv_sec) {
-        UNLOCK(PreloadLock);
         return -1; // invalid mod time
     }
 
     if (stbufCache.st_mtim.tv_nsec != stbuf->st_mtim.tv_nsec) {
-        UNLOCK(PreloadLock);
         return -1; // invalid mod time
     }
 
-    UNLOCK(PreloadLock);
     return (0);
 }
 
@@ -605,15 +595,11 @@ _invalidateCache(const char *path) {
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
-    LOCK(PreloadLock);
-
     if ((status = _getCacheWorkPath(path, cacheWorkPath)) < 0) {
-        UNLOCK(PreloadLock);
         return status;
     }
 
     if ((status = _getCachePath(path, cachePath)) < 0) {
-        UNLOCK(PreloadLock);
         return status;
     }
 
@@ -626,8 +612,6 @@ _invalidateCache(const char *path) {
         unlink(cacheWorkPath);
         status = unlink(cachePath);
     }
-
-    UNLOCK(PreloadLock);
 
     return status;
 }
@@ -643,8 +627,6 @@ _findOldestCache(const char *path, char *oldCachePath, struct stat *oldStatbuf) 
     struct stat oldestStatBuf;
     struct dirent *entry;
     struct stat statbuf;
-
-    LOCK(PreloadLock);
 
     memset(oldestCachePath, 0, MAX_NAME_LEN);
     memset(&oldestStatBuf, 0, sizeof(struct stat));
@@ -696,14 +678,11 @@ _findOldestCache(const char *path, char *oldCachePath, struct stat *oldStatbuf) 
     }
 
     if (strlen(oldestCachePath) == 0) {
-        UNLOCK(PreloadLock);
         return -1;
     }
 
     rstrcpy (oldCachePath, oldestCachePath, MAX_NAME_LEN);
-    memcpy (oldStatbuf, &oldestStatBuf, sizeof(struct stat));   
-
-    UNLOCK(PreloadLock);
+    memcpy (oldStatbuf, &oldestStatBuf, sizeof(struct stat));
 
     return (0);
 }
@@ -720,13 +699,10 @@ _evictOldCache(off_t sizeNeeded) {
         return 0;
     }
 
-    LOCK(PreloadLock);
-
     while(sizeNeeded > removedCacheSize) {
         status = _findOldestCache(PreloadConfig.cachePath, oldCachePath, &statbuf);
         if(status < 0) {
             rodsLog (LOG_ERROR, "_evictOldCache: findOldestCache failed");
-            UNLOCK(PreloadLock);
             return status;
         }
 
@@ -740,14 +716,11 @@ _evictOldCache(off_t sizeNeeded) {
         status = unlink(oldCachePath);
         if(status < 0) {
             rodsLog (LOG_ERROR, "_evictOldCache: unlink failed - %s", oldCachePath);
-            UNLOCK(PreloadLock);
             return status;
         }
 
         removedCacheSize += cacheSize;
     }
-
-    UNLOCK(PreloadLock);
     
     return (0);
 }
@@ -910,9 +883,7 @@ int
 _preparePreloadCacheDir(const char *path) {
     int status;
 
-    LOCK(PreloadLock);
     status = _makeDirs(path);
-    UNLOCK(PreloadLock);
 
     return status; 
 }
@@ -927,12 +898,10 @@ _prepareDir(const char *path) {
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
-    LOCK(PreloadLock);
     splitPathByKey ((char *) path, dir, file, '/');
     
     // make dirs
     status = _makeDirs(dir);
-    UNLOCK(PreloadLock);
 
     return status;
 }
@@ -992,21 +961,16 @@ _renameCache(const char *fromPath, const char *toPath) {
 
     rodsLog (LOG_DEBUG, "_renameCache: %s -> %s", fromPath, toPath);
 
-    LOCK(PreloadLock);
-
     if ((status = _getCachePath(fromPath, fromCachePath)) < 0) {
-        UNLOCK(PreloadLock);
         return status;
     }
 
     if ((status = _getCachePath(toPath, toCachePath)) < 0) {
-        UNLOCK(PreloadLock);
         return status;
     }
 
+    rodsLog (LOG_DEBUG, "_renameCache (local): %s -> %s", fromCachePath, toCachePath);
     status = rename(fromCachePath, toCachePath);
-
-    UNLOCK(PreloadLock);
 
     return status;
 }
@@ -1018,16 +982,11 @@ _truncateCache(const char *path, off_t size) {
 
     rodsLog (LOG_DEBUG, "_truncateCache: %s, %ld", path, size);
 
-    LOCK(PreloadLock);
-
     if ((status = _getCachePath(path, cachePath)) < 0) {
-        UNLOCK(PreloadLock);
         return status;
     }
 
     status = truncate(cachePath, size);
-
-    UNLOCK(PreloadLock);
 
     return status;
 }
@@ -1036,13 +995,9 @@ int
 _removeAllCaches() {
     int status;
     
-    LOCK(PreloadLock);
     if((status = _removeDir(PreloadConfig.cachePath)) < 0) {
-        UNLOCK(PreloadLock);
         return status;
     }
-
-    UNLOCK(PreloadLock);
 
     return 0;
 }
@@ -1051,13 +1006,9 @@ int
 _removeAllIncompleteCaches(const char *path) {
     int status;
 
-    LOCK(PreloadLock);
     if((status = _removeIncompleteCaches(PreloadConfig.cachePath)) < 0) {
-        UNLOCK(PreloadLock);
         return status;
     }
-
-    UNLOCK(PreloadLock);
 
     return 0;
 }
@@ -1091,6 +1042,7 @@ _removeIncompleteCaches(const char *path) {
                     }
 
                     if (_isEmptyDir(filepath) == 0) {
+                        rodsLog (LOG_DEBUG, "_removeIncompleteCaches: removing empty dir : %s", filepath);
                         status = rmdir(filepath);
                         if (status < 0) {
                             statusFailed = status;
@@ -1103,7 +1055,7 @@ _removeIncompleteCaches(const char *path) {
 
                     if (filenameLen > extLen && !strcmp(entry->d_name + filenameLen - extLen, PRELOAD_FILES_IN_DOWNLOADING_EXT)) {
                         // found incomplete cache
-                        rodsLog (LOG_DEBUG, "_removeIncompleteCaches: removing : %s", filepath);
+                        rodsLog (LOG_DEBUG, "_removeIncompleteCaches: removing incomplete cache : %s", filepath);
 
                         status = unlink(filepath);
                         if (status < 0) {
