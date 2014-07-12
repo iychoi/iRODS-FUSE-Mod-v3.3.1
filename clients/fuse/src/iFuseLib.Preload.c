@@ -350,6 +350,7 @@ void *_preloadThread(void *arg) {
 
     // downloading is done
     LOCK(PreloadLock);
+
     // change thread status
     LOCK_STRUCT(*threadInfo);
     threadInfo->running = PRELOAD_THREAD_IDLE;
@@ -366,6 +367,7 @@ void *_preloadThread(void *arg) {
 
     // remove from hash table
     deleteFromHashTable(PreloadThreadTable, threadInfo->path);
+
     UNLOCK(PreloadLock);
 
     free(threadInfo);

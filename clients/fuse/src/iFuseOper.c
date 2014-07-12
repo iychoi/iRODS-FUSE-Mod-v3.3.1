@@ -351,11 +351,10 @@ irodsUnlink (const char *path)
 #endif
 
 #ifdef ENABLE_PRELOAD
-        if (isPreloadEnabled() == 0) {
-            // remove preloaded cache
-            invalidatePreloadedCache(path);
-        }
+    // remove preloaded cache
+    invalidatePreloadedCache(path);
 #endif
+
 	status = 0;
     } else {
 	if (isReadMsgError (status)) {
@@ -405,10 +404,8 @@ irodsRmdir (const char *path)
 #endif
 
 #ifdef ENABLE_PRELOAD
-        if (isPreloadEnabled() == 0) {
-            // remove preloaded cache
-            invalidatePreloadedCache(path);
-        }
+        // remove preloaded cache
+        invalidatePreloadedCache(path);
 #endif
         status = 0;
     } else {
@@ -484,13 +481,6 @@ irodsRename (const char *from, const char *to)
 #ifdef CACHE_FUSE_PATH
     	status = renmeLocalPath ((char *) from, (char *) to, (char *) toIrodsPath);
 #endif
-
-#ifdef ENABLE_PRELOAD
-        if (isPreloadEnabled() == 0) {
-            // rename preloaded cache
-            status = renamePreloadedCache (from, to);
-        }
-#endif
     } else {
 		if (isReadMsgError (status)) {
 			ifuseReconnect (iFuseConn);
@@ -502,6 +492,12 @@ irodsRename (const char *from, const char *to)
             status = -ENOENT;
 		}
     }
+
+#ifdef ENABLE_PRELOAD
+    // rename preloaded cache
+    status = renamePreloadedCache (from, to);
+#endif
+
     unuseIFuseConn (iFuseConn);
     free(toIrodsPath);
 
@@ -652,10 +648,8 @@ irodsTruncate (const char *path, off_t size)
         UNLOCK_STRUCT(*tmpPathCache);
 
 #ifdef ENABLE_PRELOAD
-        if (isPreloadEnabled() == 0) {
-            // truncate
-            status = truncatePreloadedCache (path, size);
-        }
+        // truncate
+        status = truncatePreloadedCache (path, size);
 #endif
 
         status = 0;
@@ -746,6 +740,22 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
 
     /* do only O_RDONLY (0) */
 	status = _irodsGetattr (iFuseConn, path, &stbuf);
+
+#ifdef ENABLE_PRELOAD
+    if ((flags & O_ACCMODE) == O_WRONLY || (flags & O_ACCMODE) == O_RDWR) {
+        // invalidate cache as it will be overwritten
+        invalidatePreloadedCache(path);          
+    } else if (isPreloadEnabled() == 0) {
+        if ((flags & O_ACCMODE) == O_RDONLY && stbuf.st_size > MAX_READ_CACHE_SIZE) {
+            // preload irods file
+            // this may fail if background tasks are already running too many
+            if (preloadFile(path, &stbuf) == 0) {
+                rodsLog (LOG_DEBUG, "irodsOpen: preload %s", path);
+            }
+        }
+    }
+#endif
+
     if ((flags & (O_WRONLY | O_RDWR)) != 0 || status < 0 || stbuf.st_size > MAX_READ_CACHE_SIZE) {
         fd = rcDataObjOpen (iFuseConn->conn, &dataObjInp);
         unuseIFuseConn (iFuseConn);
@@ -761,18 +771,6 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
             rodsLogError (LOG_ERROR, status, "irodsOpen: allocIFuseDesc of %s error", path);
             return -ENOENT;
         }
-        
-#ifdef ENABLE_PRELOAD
-        if ((flags & O_ACCMODE) == O_RDONLY) {
-            if (isPreloadEnabled() == 0) {
-                // preload irods file
-                // this may fail if background tasks are already running too many
-                if (preloadFile(path, &stbuf) == 0) {
-                    rodsLog (LOG_DEBUG, "irodsOpen: preload %s", path);
-                }
-            }
-        }
-#endif
     } else {
 		rodsLog (LOG_DEBUG, "irodsOpenWithReadCache: caching %s", path);
 		if ((status = getFileCachePath (path, cachePath)) < 0) {
