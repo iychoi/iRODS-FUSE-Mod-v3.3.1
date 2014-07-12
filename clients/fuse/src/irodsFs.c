@@ -154,6 +154,13 @@ irodsOper.flush = irodsFlush;
     irodsOper.flush = irodsFlush;
 #endif
 
+    status = getRodsEnv (&MyRodsEnv);
+
+    if (status < 0) {
+        rodsLogError(LOG_ERROR, status, "main: getRodsEnv error. ");
+        exit (1);
+    }
+
 #ifdef ENABLE_PRELOAD
     /* handle the preload command line options first */
     status = parsePreloadCmdLineOpt (argc, argv, &MyPreloadConfig);
@@ -180,13 +187,6 @@ irodsOper.flush = irodsFlush;
     if (myRodsArgs.help==True) {
        usage();
        exit(0);
-    }
-
-    status = getRodsEnv (&MyRodsEnv);
-
-    if (status < 0) {
-        rodsLogError(LOG_ERROR, status, "main: getRodsEnv error. ");
-        exit (1);
     }
 
     srandom((unsigned int) time(0) % getpid());
@@ -255,7 +255,7 @@ parsePreloadCmdLineOpt (int argc, char **argv, PreloadConfig *preloadConfig) {
             if (i + 2 < argc) {
                 if (*argv[i+1] == '-') {
                     rodsLog (LOG_ERROR,
-                    "--preload-cache-max option takes an size argument");
+                    "--preload-cache-max option takes a size argument");
                     return USER_INPUT_OPTION_ERR;
                 }
                 preloadConfig->preload=True;
@@ -263,11 +263,31 @@ parsePreloadCmdLineOpt (int argc, char **argv, PreloadConfig *preloadConfig) {
                 argv[i+1]="-Z";
             }
         }
+        if (strcmp("--preload-file-min", argv[i])==0) {
+            argv[i]="-Z";
+            if (i + 2 < argc) {
+                if (*argv[i+1] == '-') {
+                    rodsLog (LOG_ERROR,
+                    "--preload-file-min option takes a size argument");
+                    return USER_INPUT_OPTION_ERR;
+                }
+                preloadConfig->preload=True;
+                preloadConfig->preloadMinSize=strtoll(argv[i+1], 0, 0);
+                argv[i+1]="-Z";
+            }
+        }
     }
 
     // set default
     if(preloadConfig->cachePath == NULL) {
+        rodsLog (LOG_DEBUG, "parsePreloadCmdLineOpt: uses default preload cache dir - %s", FUSE_PRELOAD_CACHE_DIR);
         preloadConfig->cachePath=strdup(FUSE_PRELOAD_CACHE_DIR);
+    }
+
+    if(preloadConfig->preloadMinSize < MAX_READ_CACHE_SIZE) {
+        // in this case, given iRODS file is not cached by preload but cached by file cache.
+        rodsLog (LOG_DEBUG, "parsePreloadCmdLineOpt: uses default min size %lld - (given %lld)", MAX_READ_CACHE_SIZE, preloadConfig->preloadMinSize);
+        preloadConfig->preloadMinSize = MAX_READ_CACHE_SIZE;
     }
 
     return(0);
@@ -342,7 +362,7 @@ usage ()
 {
    char *msgs[]={
 #ifdef ENABLE_PRELOAD
-   "Usage : irodsFs [-hd] [--preload] [--preload-cache-dir dir] [--preload-cache-max maxsize] [-o opt,[opt...]]",
+   "Usage : irodsFs [-hd] [--preload] [--preload-cache-dir dir] [--preload-cache-max maxsize] [--preload-file-min minsize] [-o opt,[opt...]]",
 #else
    "Usage : irodsFs [-hd] [-o opt,[opt...]]",
 #endif
@@ -355,6 +375,7 @@ usage ()
 " --preload  use preload",
 " --preload-cache-dir  specify preload cache directory",
 " --preload-cache-max  specify preload cache max limit (in bytes)", 
+" --preload-file-min specify minimum file size that will be preloaded (in bytes)",
 #endif
 
 " -o  opt,[opt...]  FUSE mount options",

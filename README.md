@@ -1,14 +1,14 @@
 iRODS-FUSE-Mod
 ==============
 
-Modified version of iRODS-FUSE client in order to optimize file read performance
+Modified version of iRODS-FUSE client that supports file preload and lazy upload to improve I/O performance
 
 Overview
 --------
 
-Original read performance of iRODS FUSE client is way slower than "iget" command-line utility. This is because "iget" uses multi-threaded parallel access to the data file and bigger chunk size per request while "iRODS FUSE client" uses single thread and small chunk size. Hence "iget" program utilizes network bandwidth more efficiently.
+Original read performance of iRODS FUSE client is slower than "iget" and "iput" command-line tools. This is because "iget" and "iput" uses multi-threaded parallel access to remote data files and uses bigger chunk size per request while "iRODS FUSE client" uses single thread and small chunk size. Hence "iget" program utilizes network bandwidth more efficiently.
 
-In this project, read operations will be boosted by the same manner with "iget". While reading a big file from iRODS server, iRODS FUSE will download the whole file to local disk. Later read operations will be the same as simple local file read.
+In this project, file operations will be improved by using the same techniques as "iget" and "iput". While reading a big remote file, the modified iRODS FUSE will download the whole file to local disk in background. Hence, subsequent read operations will be benefitted by local cache. While writing a big file, the modified iRODS FUSE will save the file content to local disk first and commit (upload) the content when the file handle is closed.
 
 FUSE Configuration Options
 --------------------------
@@ -16,6 +16,7 @@ FUSE Configuration Options
 - "--preload" : use preload
 - "--preload-cache-dir" : specify preload cache directory, if not specified, "/tmp/fusePreloadCache/" will be used
 - "--preload-cache-max" : specify preload cache max limit (in bytes)
+- "--preload-file-min" : specify minimum file size that will be preloaded (in bytes)
 
 If you just want to use the preloading without configuring other parameters, you will need to give "--preload" option. If you use any other options that relate to the preloading, you don't need to give "--preload". Those options will also set "--preload" option by default.
 

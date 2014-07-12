@@ -138,6 +138,7 @@ typedef struct PreloadConfig {
     int preload;
     char *cachePath;
     rodsLong_t cacheMaxSize; /* 0 means unlimited */
+    rodsLong_t preloadMinSize; /* 0 means "use default" */ 
 } preloadConfig_t;
 
 #define PRELOAD_FILES_IN_DOWNLOADING_EXT    ".part"

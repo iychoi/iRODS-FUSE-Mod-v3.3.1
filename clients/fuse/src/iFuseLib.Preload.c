@@ -65,6 +65,7 @@ initPreload (preloadConfig_t *preloadConfig, rodsEnv *myRodsEnv, rodsArguments_t
     rodsLog (LOG_DEBUG, "initPreload: MyPreloadConfig.preload = %d", preloadConfig->preload);
     rodsLog (LOG_DEBUG, "initPreload: MyPreloadConfig.cachePath = %s", preloadConfig->cachePath);
     rodsLog (LOG_DEBUG, "initPreload: MyPreloadConfig.cacheMaxSize = %lld", preloadConfig->cacheMaxSize);
+    rodsLog (LOG_DEBUG, "initPreload: MyPreloadConfig.preloadMinSize = %lld", preloadConfig->preloadMinSize);
 
     // copy given configuration
     memcpy(&PreloadConfig, preloadConfig, sizeof(preloadConfig_t));
@@ -158,7 +159,14 @@ preloadFile (const char *path, struct stat *stbuf) {
 
     if(_hasValidCache(iRODSPath, stbuf) != 0) {
         // invalidate cache - this may fail if cache file does not exists
+        // if old cache exists in local, invalidate it
         _invalidateCache(iRODSPath);
+
+        if(stbuf->st_size < PreloadConfig.preloadMinSize) {
+            rodsLog (LOG_DEBUG, "preloadFile: given file is smaller than preloadMinSize, canceling preloading - %s", iRODSPath);
+            UNLOCK(PreloadLock);
+            return (0);
+        }
 
         // check whether preload cache exceeds limit
         if(PreloadConfig.cacheMaxSize > 0) {
