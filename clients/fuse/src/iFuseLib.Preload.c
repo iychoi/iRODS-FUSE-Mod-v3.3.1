@@ -40,12 +40,15 @@ int _invalidateCache(const char *path);
 int _evictOldCache(off_t sizeNeeded);
 int _findOldestCache(const char *path, char *oldCachePath, struct stat *oldStatbuf);
 int _getCacheWorkPath(const char *path, char *cachePath);
-int _preparePreloadCacheDir();
+int _preparePreloadCacheDir(const char *path);
 int _prepareDir(const char *path);
 int _isDirectory(const char *path);
 int _makeDirs(const char *path);
 int _removeAllCaches();
+int _removeAllIncompleteCaches(const char *path);
+int _removeIncompleteCaches(const char *path);
 int _removeDir(const char *path);
+int _isEmptyDir(const char *path);
 int _renameCache(const char *fromPath, const char *toPath);
 int _truncateCache(const char *path, off_t size);
 struct timeval _getCurrentTime();
@@ -77,7 +80,11 @@ initPreload (preloadConfig_t *preloadConfig, rodsEnv *myRodsEnv, rodsArguments_t
     // init lock
     INIT_LOCK(PreloadLock);
 
-    _preparePreloadCacheDir();
+    _preparePreloadCacheDir(preloadConfig->cachePath);
+
+    // remove incomplete preload caches
+    _removeAllIncompleteCaches(preloadConfig->cachePath);
+
     return (0);
 }
 
@@ -104,6 +111,9 @@ uninitPreload (preloadConfig_t *preloadConfig) {
             threadInfo->path = NULL;
         }
     }
+
+    // remove incomplete preload caches
+    _removeAllIncompleteCaches(preloadConfig->cachePath);
 
     FREE_LOCK(PreloadLock);
     return (0);
@@ -889,19 +899,19 @@ _getCacheWorkPath(const char *path, char *cachePath) {
     }
 
     if(strlen(path) > 0 && path[0] == '/') {
-        snprintf(cachePath, MAX_NAME_LEN, "%s%s.part", PreloadConfig.cachePath, path);
+        snprintf(cachePath, MAX_NAME_LEN, "%s%s%s", PreloadConfig.cachePath, path, PRELOAD_FILES_IN_DOWNLOADING_EXT);
     } else {
-        snprintf(cachePath, MAX_NAME_LEN, "%s/%s.part", PreloadConfig.cachePath, path);
+        snprintf(cachePath, MAX_NAME_LEN, "%s/%s%s", PreloadConfig.cachePath, path, PRELOAD_FILES_IN_DOWNLOADING_EXT);
     }
     return (0);
 }
 
 int
-_preparePreloadCacheDir() {
+_preparePreloadCacheDir(const char *path) {
     int status;
 
     LOCK(PreloadLock);
-    status = _makeDirs(PreloadConfig.cachePath);
+    status = _makeDirs(path);
     UNLOCK(PreloadLock);
 
     return status; 
@@ -1038,6 +1048,78 @@ _removeAllCaches() {
 }
 
 int
+_removeAllIncompleteCaches(const char *path) {
+    int status;
+
+    LOCK(PreloadLock);
+    if((status = _removeIncompleteCaches(PreloadConfig.cachePath)) < 0) {
+        UNLOCK(PreloadLock);
+        return status;
+    }
+
+    UNLOCK(PreloadLock);
+
+    return 0;
+}
+
+int
+_removeIncompleteCaches(const char *path) {
+    DIR *dir = opendir(path);
+    char filepath[MAX_NAME_LEN];
+    struct dirent *entry;
+    struct stat statbuf;
+    int filenameLen;
+    int extLen;
+    int status;
+    int statusFailed = 0;
+
+    if (dir != NULL) {
+        while ((entry = readdir(dir)) != NULL) {
+            if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) {
+                continue;
+            }
+
+            snprintf(filepath, MAX_NAME_LEN, "%s/%s", path, entry->d_name);
+
+            if (!stat(filepath, &statbuf)) {
+                // has entry
+                if (S_ISDIR(statbuf.st_mode)) {
+                    // directory
+                    status = _removeIncompleteCaches(filepath);
+                    if (status < 0) {
+                        statusFailed = status;
+                    }
+
+                    if (_isEmptyDir(filepath) == 0) {
+                        status = rmdir(filepath);
+                        if (status < 0) {
+                            statusFailed = status;
+                        }
+                    }
+                } else {
+                    // file
+                    filenameLen = strlen(entry->d_name);
+                    extLen = strlen(PRELOAD_FILES_IN_DOWNLOADING_EXT);
+
+                    if (filenameLen > extLen && !strcmp(entry->d_name + filenameLen - extLen, PRELOAD_FILES_IN_DOWNLOADING_EXT)) {
+                        // found incomplete cache
+                        rodsLog (LOG_DEBUG, "_removeIncompleteCaches: removing : %s", filepath);
+
+                        status = unlink(filepath);
+                        if (status < 0) {
+                            statusFailed = status;
+                        }
+                    }
+                }
+            }
+        }
+        closedir(dir);
+    }
+
+    return statusFailed;
+}
+
+int
 _removeDir(const char *path) {
     DIR *dir = opendir(path);
     char filepath[MAX_NAME_LEN];
@@ -1080,6 +1162,26 @@ _removeDir(const char *path) {
     }
 
     return statusFailed;
+}
+
+int
+_isEmptyDir(const char *path) {
+    DIR *dir = opendir(path);
+    struct dirent *entry;
+    int entryCount = 0;
+
+    if (dir != NULL) {
+        while ((entry = readdir(dir)) != NULL) {
+            if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) {
+                continue;
+            }
+
+            entryCount++;
+        }
+        closedir(dir);
+    }
+
+    return entryCount;
 }
 
 struct timeval

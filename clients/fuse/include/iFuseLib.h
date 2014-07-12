@@ -140,7 +140,7 @@ typedef struct PreloadConfig {
     rodsLong_t cacheMaxSize; /* 0 means unlimited */
 } preloadConfig_t;
 
-#define NUM_PRELOAD_CACHE_HASH_SLOT	201
+#define PRELOAD_FILES_IN_DOWNLOADING_EXT    ".part"
 #define NUM_PRELOAD_THREAD_HASH_SLOT	201
 
 typedef struct PreloadThreadInfo {
@@ -301,10 +301,5 @@ findPreloadPath(const char *path, char *preloadPath);
 #ifdef  __cplusplus
 }
 #endif
-
-/***************************************
-Test Constants
-***************************************/
-#define MAX_SIZE_OF_CACHES  (1024 * 1024 * 1024 * 50)
 
 #endif	/* I_FUSE_LIB_H */

@@ -202,7 +202,7 @@ irodsOper.flush = irodsFlush;
 
 #ifdef ENABLE_PRELOAD
     // initialize preload
-    initPreload(&MyPreloadConfig, &MyRodsEnv, &myRodsArgs);
+    initPreload (&MyPreloadConfig, &MyRodsEnv, &myRodsArgs);
 #endif
 
     status = fuse_main (argc, argv, &irodsOper, NULL);
