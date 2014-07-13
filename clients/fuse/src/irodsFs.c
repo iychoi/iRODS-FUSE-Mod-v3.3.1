@@ -18,8 +18,9 @@
 /* some global variables */
 
 extern rodsEnv MyRodsEnv;
-#ifdef ENABLE_PRELOAD
+#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
 preloadConfig_t MyPreloadConfig;
+lazyUploadConfig_t MyLazyUploadConfig;
 #endif
 
 #ifdef  __cplusplus
@@ -51,9 +52,10 @@ static struct fuse_operations irodsOper =
 };
 #endif
 
-#ifdef ENABLE_PRELOAD
-int parsePreloadCmdLineOpt (int argc, char **argv, PreloadConfig *preloadConfig);
-int releasePreloadConfig (PreloadConfig *preloadConfig);
+#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
+int parsePreloadAndLazyUploadCmdLineOpt (int argc, char **argv, preloadConfig_t *preloadConfig, lazyUploadConfig_t *lazyUploadConfig);
+int releasePreloadConfig (preloadConfig_t *preloadConfig);
+int releaseLazyUploadConfig (lazyUploadConfig_t *lazyUploadConfig);
 int makeCleanCmdLineOpt (int argc, char **argv, int *argc2, char ***argv2);
 int releaseUserCreatedCmdLineOpt (int argc, char **argv);
 #endif
@@ -161,9 +163,9 @@ irodsOper.flush = irodsFlush;
         exit (1);
     }
 
-#ifdef ENABLE_PRELOAD
-    /* handle the preload command line options first */
-    status = parsePreloadCmdLineOpt (argc, argv, &MyPreloadConfig);
+#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
+    /* handle the preload and lazy upload command line options first */
+    status = parsePreloadAndLazyUploadCmdLineOpt (argc, argv, &MyPreloadConfig, &MyLazyUploadConfig);
 
     if (status < 0) {
         printf("Use -h for help.\n");
@@ -200,21 +202,25 @@ irodsOper.flush = irodsFlush;
     initConn();
     initFileCache();
 
-#ifdef ENABLE_PRELOAD
+#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
     // initialize preload
     initPreload (&MyPreloadConfig, &MyRodsEnv, &myRodsArgs);
+    initLazyUpload (&MyLazyUploadConfig, &MyRodsEnv, &myRodsArgs);
 #endif
 
     status = fuse_main (argc, argv, &irodsOper, NULL);
 
-#ifdef ENABLE_PRELOAD
+#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
     /* release the preload command line options */
     releaseUserCreatedCmdLineOpt (argc, argv);
 
     // uninitialize preload
     uninitPreload (&MyPreloadConfig);
-
     releasePreloadConfig (&MyPreloadConfig);
+
+    // uninitialize lazy upload
+    uninitLazyUpload (&MyLazyUploadConfig);
+    releaseLazyUploadConfig (&MyLazyUploadConfig);
 #endif
 
     disconnectAll ();
@@ -226,15 +232,21 @@ irodsOper.flush = irodsFlush;
     }
 }
 
-#ifdef ENABLE_PRELOAD
+#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
 int 
-parsePreloadCmdLineOpt (int argc, char **argv, PreloadConfig *preloadConfig) {
+parsePreloadAndLazyUploadCmdLineOpt (int argc, char **argv, preloadConfig_t *preloadConfig, lazyUploadConfig_t *lazyUploadConfig) {
     int i;
     memset(preloadConfig, 0, sizeof(preloadConfig_t));
+    memset(lazyUploadConfig, 0, sizeof(lazyUploadConfig_t));
 
     for (i=0;i<argc;i++) {
         if (strcmp("--preload", argv[i])==0) {
             preloadConfig->preload=True;
+            argv[i]="-Z";
+        }
+        if (strcmp("--preload-clear-cache", argv[i])==0) {
+            preloadConfig->preload=True;
+            preloadConfig->clearCache=True;
             argv[i]="-Z";
         }
         if (strcmp("--preload-cache-dir", argv[i])==0) {
@@ -276,31 +288,66 @@ parsePreloadCmdLineOpt (int argc, char **argv, PreloadConfig *preloadConfig) {
                 argv[i+1]="-Z";
             }
         }
+        if (strcmp("--lazyupload", argv[i])==0) {
+            lazyUploadConfig->lazyUpload=True;
+            argv[i]="-Z";
+        }
+        if (strcmp("--lazyupload-buffer-dir", argv[i])==0) {
+            argv[i]="-Z";
+            if (i + 2 < argc) {
+                if (*argv[i+1] == '-') {
+                    rodsLog (LOG_ERROR,
+                    "--lazyupload-cache-dir option takes a directory argument");
+                    return USER_INPUT_OPTION_ERR;
+                }
+                lazyUploadConfig->lazyUpload=True;
+                lazyUploadConfig->bufferPath=strdup(argv[i+1]);
+                argv[i+1]="-Z";
+            }
+        }
     }
 
     // set default
     if(preloadConfig->cachePath == NULL) {
-        rodsLog (LOG_DEBUG, "parsePreloadCmdLineOpt: uses default preload cache dir - %s", FUSE_PRELOAD_CACHE_DIR);
+        rodsLog (LOG_DEBUG, "parsePreloadAndLazyUploadCmdLineOpt: uses default preload cache dir - %s", FUSE_PRELOAD_CACHE_DIR);
         preloadConfig->cachePath=strdup(FUSE_PRELOAD_CACHE_DIR);
     }
 
     if(preloadConfig->preloadMinSize < MAX_READ_CACHE_SIZE) {
         // in this case, given iRODS file is not cached by preload but cached by file cache.
-        rodsLog (LOG_DEBUG, "parsePreloadCmdLineOpt: uses default min size %lld - (given %lld)", MAX_READ_CACHE_SIZE, preloadConfig->preloadMinSize);
+        rodsLog (LOG_DEBUG, "parsePreloadAndLazyUploadCmdLineOpt: uses default min size %lld - (given %lld)", MAX_READ_CACHE_SIZE, preloadConfig->preloadMinSize);
         preloadConfig->preloadMinSize = MAX_READ_CACHE_SIZE;
+    }
+
+    if(lazyUploadConfig->bufferPath == NULL) {
+        rodsLog (LOG_DEBUG, "parsePreloadAndLazyUploadCmdLineOpt: uses default lazy-upload buffer dir - %s", FUSE_LAZY_UPLOAD_BUFFER_DIR);
+        lazyUploadConfig->bufferPath=strdup(FUSE_LAZY_UPLOAD_BUFFER_DIR);
     }
 
     return(0);
 }
 
 int
-releasePreloadConfig (PreloadConfig *preloadConfig) {
+releasePreloadConfig (preloadConfig_t *preloadConfig) {
     if (preloadConfig==NULL) {
         return -1;
     }
 
     if (preloadConfig->cachePath!=NULL) {
         free(preloadConfig->cachePath);
+    }
+
+    return(0);
+}
+
+int
+releaseLazyUploadConfig (lazyUploadConfig_t *lazyUploadConfig) {
+    if (lazyUploadConfig==NULL) {
+        return -1;
+    }
+
+    if (lazyUploadConfig->bufferPath!=NULL) {
+        free(lazyUploadConfig->bufferPath);
     }
 
     return(0);
@@ -361,8 +408,8 @@ void
 usage ()
 {
    char *msgs[]={
-#ifdef ENABLE_PRELOAD
-   "Usage : irodsFs [-hd] [--preload] [--preload-cache-dir dir] [--preload-cache-max maxsize] [--preload-file-min minsize] [-o opt,[opt...]]",
+#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
+   "Usage : irodsFs [-hd] [--preload] [--preload-clear-cache] [--preload-cache-dir dir] [--preload-cache-max maxsize] [--preload-file-min minsize] [--lazyupload] [--lazyupload-buffer-dir dir] [-o opt,[opt...]]",
 #else
    "Usage : irodsFs [-hd] [-o opt,[opt...]]",
 #endif
@@ -371,11 +418,14 @@ usage ()
 " -h  this help",
 " -d  FUSE debug mode",
 
-#ifdef ENABLE_PRELOAD
+#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
 " --preload  use preload",
+" --preload-clear-cache  clear preload caches",
 " --preload-cache-dir  specify preload cache directory",
 " --preload-cache-max  specify preload cache max limit (in bytes)", 
 " --preload-file-min specify minimum file size that will be preloaded (in bytes)",
+" --lazyupload  use lazy-upload",
+" --lazyupload-buffer-dir  specify lazy-upload buffer directory",
 #endif
 
 " -o  opt,[opt...]  FUSE mount options",

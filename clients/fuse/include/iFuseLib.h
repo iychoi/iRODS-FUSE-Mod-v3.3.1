@@ -14,7 +14,7 @@
 #define CACHE_FILE_FOR_NEWLY_CREATED     1
 #endif
 
-#define ENABLE_PRELOAD          1
+#define ENABLE_PRELOAD_AND_LAZY_UPLOAD          1
 
 #define MAX_BUF_CACHE   2
 #define MAX_IFUSE_DESC   512
@@ -28,6 +28,7 @@
 
 #define FUSE_CACHE_DIR	"/tmp/fuseCache"
 #define FUSE_PRELOAD_CACHE_DIR  "/tmp/fusePreloadCache"
+#define FUSE_LAZY_UPLOAD_BUFFER_DIR  "/tmp/fuseLazyUploadBuffer"
 
 #define IRODS_FREE		0
 #define IRODS_INUSE	1 
@@ -136,10 +137,16 @@ typedef struct newlyCreatedFile {
 
 typedef struct PreloadConfig {
     int preload;
+    int clearCache;
     char *cachePath;
     rodsLong_t cacheMaxSize; /* 0 means unlimited */
     rodsLong_t preloadMinSize; /* 0 means "use default" */ 
 } preloadConfig_t;
+
+typedef struct LazyUploadConfig {
+    int lazyUpload;
+    char *bufferPath;
+} lazyUploadConfig_t;
 
 #define PRELOAD_FILES_IN_DOWNLOADING_EXT    ".part"
 #define NUM_PRELOAD_THREAD_HASH_SLOT	201
@@ -296,9 +303,23 @@ renamePreloadedCache (const char *fromPath, const char *toPath);
 int
 truncatePreloadedCache (const char *path, off_t size);
 int
-isPreloaded(const char *path);
+isPreloaded (const char *path);
 int
-findPreloadPath(const char *path, char *preloadPath);
+findPreloadCachePath (const char *path, char *preloadPath);
+int
+initLazyUpload (lazyUploadConfig_t *lazyUploadConfig, rodsEnv *myRodsEnv, rodsArguments_t *myRodsArgs);
+int
+uninitLazyUpload (lazyUploadConfig_t *lazyUploadConfig);
+int
+isLazyUploadEnabled();
+int
+prepareLazyUploadBufferredFile(const char *path);
+int
+uploadFile (const char *path);
+int
+isLazyUploadBufferredFile (const char *path);
+int
+findLazyUploadBufferredFilePath (const char *path, char *lazyUploadPath);
 #ifdef  __cplusplus
 }
 #endif

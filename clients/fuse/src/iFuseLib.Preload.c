@@ -18,59 +18,58 @@
 /**************************************************************************
  * global variables
  **************************************************************************/
-preloadConfig_t PreloadConfig;
-rodsEnv *RodsEnv;
-rodsArguments_t *RodsArgs;
+static preloadConfig_t PreloadConfig;
+static rodsEnv *PreloadRodsEnv;
+static rodsArguments_t *PreloadRodsArgs;
 
-concurrentList_t *PreloadThreadList;
-Hashtable *PreloadThreadTable;
+static concurrentList_t *PreloadThreadList;
+static Hashtable *PreloadThreadTable;
 
 /**************************************************************************
  * function definitions
  **************************************************************************/
-void *_preloadThread(void *arg);
-int _download(const char *path, struct stat *stbufIn);
-int _completeDownload(const char *workPath, const char *cachePath, struct stat *stbuf);
-int _hasValidCache(const char *path, struct stat *stbuf);
-int _getCachePath(const char *path, char *cachePath);
-int _getiRODSPath(const char *path, char *iRODSPath);
-int _hasCache(const char *path);
-off_t _getFileSizeRecursive(const char *path);
-int _invalidateCache(const char *path);
-int _evictOldCache(off_t sizeNeeded);
-int _findOldestCache(const char *path, char *oldCachePath, struct stat *oldStatbuf);
-int _getCacheWorkPath(const char *path, char *cachePath);
-int _preparePreloadCacheDir(const char *path);
-int _prepareDir(const char *path);
-int _isDirectory(const char *path);
-int _makeDirs(const char *path);
-int _removeAllCaches();
-int _removeAllIncompleteCaches(const char *path);
-int _removeIncompleteCaches(const char *path);
-int _removeDir(const char *path);
-int _isEmptyDir(const char *path);
-int _renameCache(const char *fromPath, const char *toPath);
-int _truncateCache(const char *path, off_t size);
-struct timeval _getCurrentTime();
-double _timeDiff(struct timeval a, struct timeval b);
-time_t _convTime(struct timeval);
+static void *_preloadThread(void *arg);
+static int _download(const char *path, struct stat *stbufIn);
+static int _completeDownload(const char *workPath, const char *cachePath, struct stat *stbuf);
+static int _hasValidCache(const char *path, struct stat *stbuf);
+static int _getCachePath(const char *path, char *cachePath);
+static int _getiRODSPath(const char *path, char *iRODSPath);
+static int _hasCache(const char *path);
+static off_t _getFileSizeRecursive(const char *path);
+static int _invalidateCache(const char *path);
+static int _evictOldCache(off_t sizeNeeded);
+static int _findOldestCache(const char *path, char *oldCachePath, struct stat *oldStatbuf);
+static int _getCacheWorkPath(const char *path, char *cachePath);
+static int _preparePreloadCacheDir(const char *path);
+static int _prepareDir(const char *path);
+static int _isDirectory(const char *path);
+static int _makeDirs(const char *path);
+static int _removeAllCaches();
+static int _removeAllIncompleteCaches(const char *path);
+static int _removeIncompleteCaches(const char *path);
+static int _emptyDir(const char *path);
+static int _removeDir(const char *path);
+static int _isEmptyDir(const char *path);
+static int _renameCache(const char *fromPath, const char *toPath);
+static int _truncateCache(const char *path, off_t size);
+static struct timeval _getCurrentTime();
+static time_t _convTime(struct timeval);
 
 /**************************************************************************
  * public functions
  **************************************************************************/
 int
-initPreload (preloadConfig_t *preloadConfig, rodsEnv *myRodsEnv, rodsArguments_t *myRodsArgs) {
-    //char* icommandEnv;
-
+initPreload (preloadConfig_t *preloadConfig, rodsEnv *myPreloadRodsEnv, rodsArguments_t *myPreloadRodsArgs) {
     rodsLog (LOG_DEBUG, "initPreload: MyPreloadConfig.preload = %d", preloadConfig->preload);
+    rodsLog (LOG_DEBUG, "initPreload: MyPreloadConfig.clearCache = %d", preloadConfig->clearCache);
     rodsLog (LOG_DEBUG, "initPreload: MyPreloadConfig.cachePath = %s", preloadConfig->cachePath);
     rodsLog (LOG_DEBUG, "initPreload: MyPreloadConfig.cacheMaxSize = %lld", preloadConfig->cacheMaxSize);
     rodsLog (LOG_DEBUG, "initPreload: MyPreloadConfig.preloadMinSize = %lld", preloadConfig->preloadMinSize);
 
     // copy given configuration
     memcpy(&PreloadConfig, preloadConfig, sizeof(preloadConfig_t));
-    RodsEnv = myRodsEnv;
-    RodsArgs = myRodsArgs;
+    PreloadRodsEnv = myPreloadRodsEnv;
+    PreloadRodsArgs = myPreloadRodsArgs;
 
     // init hashtables
     PreloadThreadTable = newHashTable(NUM_PRELOAD_THREAD_HASH_SLOT);
@@ -83,8 +82,13 @@ initPreload (preloadConfig_t *preloadConfig, rodsEnv *myRodsEnv, rodsArguments_t
 
     _preparePreloadCacheDir(preloadConfig->cachePath);
 
-    // remove incomplete preload caches
-    _removeAllIncompleteCaches(preloadConfig->cachePath);
+    if(preloadConfig->clearCache) {
+        // clear all cache
+        _removeAllCaches();
+    } else {
+        // remove incomplete preload caches
+        _removeAllIncompleteCaches(preloadConfig->cachePath);
+    }
 
     return (0);
 }
@@ -113,8 +117,13 @@ uninitPreload (preloadConfig_t *preloadConfig) {
         }
     }
 
-    // remove incomplete preload caches
-    _removeAllIncompleteCaches(preloadConfig->cachePath);
+    if(preloadConfig->clearCache) {
+        // clear all cache
+        _removeAllCaches();
+    } else {
+        // remove incomplete preload caches
+        _removeAllIncompleteCaches(preloadConfig->cachePath);
+    }
 
     FREE_LOCK(PreloadLock);
     return (0);
@@ -313,7 +322,7 @@ isPreloaded (const char *path) {
 }
 
 int
-findPreloadPath (const char *path, char *preloadPath) {
+findPreloadCachePath (const char *path, char *preloadPath) {
     int status;
     char iRODSPath[MAX_NAME_LEN];
 
@@ -330,7 +339,7 @@ findPreloadPath (const char *path, char *preloadPath) {
 /**************************************************************************
  * private functions
  **************************************************************************/
-void *_preloadThread(void *arg) {
+static void *_preloadThread(void *arg) {
     int status;
     preloadThreadData_t *threadData = (preloadThreadData_t *)arg;
     preloadThreadInfo_t *threadInfo = NULL;
@@ -374,7 +383,7 @@ void *_preloadThread(void *arg) {
     pthread_exit(NULL);
 }
 
-int
+static int
 _download(const char *path, struct stat *stbufIn) {
     int status;
     rcComm_t *conn;
@@ -403,7 +412,7 @@ _download(const char *path, struct stat *stbufIn) {
     // set src path
     memset( &rodsPathInp, 0, sizeof( rodsPathInp_t ) );
     addSrcInPath( &rodsPathInp, (char*)path );
-    status = parseRodsPath (&rodsPathInp.srcPath[0], RodsEnv);
+    status = parseRodsPath (&rodsPathInp.srcPath[0], PreloadRodsEnv);
     if(status < 0) {
         rodsLogError(LOG_ERROR, status, "_download: parseRodsPath error.");
         return status;
@@ -420,14 +429,14 @@ _download(const char *path, struct stat *stbufIn) {
     }
 
     // Connect
-    conn = rcConnect (RodsEnv->rodsHost, RodsEnv->rodsPort, RodsEnv->rodsUserName, RodsEnv->rodsZone, RECONN_TIMEOUT, &errMsg);
+    conn = rcConnect (PreloadRodsEnv->rodsHost, PreloadRodsEnv->rodsPort, PreloadRodsEnv->rodsUserName, PreloadRodsEnv->rodsZone, RECONN_TIMEOUT, &errMsg);
     if (conn == NULL) {
-        rodsLog (LOG_ERROR, "_download: error occurred while connecting to irods", path);
+        rodsLog (LOG_ERROR, "_download: error occurred while connecting to irods");
         return -1;
     }
 
     // Login
-    if (strcmp (RodsEnv->rodsUserName, PUBLIC_USER_NAME) != 0) { 
+    if (strcmp (PreloadRodsEnv->rodsUserName, PUBLIC_USER_NAME) != 0) { 
         status = clientLogin(conn);
         if (status != 0) {
             rodsLogError(LOG_ERROR, status, "_download: ClientLogin error.");
@@ -441,7 +450,7 @@ _download(const char *path, struct stat *stbufIn) {
 
     // Preload
     rodsLog (LOG_DEBUG, "_download: download %s", path);
-    status = getUtil (&conn, RodsEnv, RodsArgs, &rodsPathInp);
+    status = getUtil (&conn, PreloadRodsEnv, PreloadRodsArgs, &rodsPathInp);
     rodsLog (LOG_DEBUG, "_download: complete downloading %s", path);
 
     // Disconnect 
@@ -465,7 +474,7 @@ _download(const char *path, struct stat *stbufIn) {
     return 0;
 }
 
-int
+static int
 _completeDownload(const char *workPath, const char *cachePath, struct stat *stbuf) {
     int status;
     struct utimbuf amtime;
@@ -496,7 +505,7 @@ _completeDownload(const char *workPath, const char *cachePath, struct stat *stbu
     return (0);
 }
 
-int
+static int
 _hasCache(const char *path) {
     int status;
     char cachePath[MAX_NAME_LEN];
@@ -518,7 +527,7 @@ _hasCache(const char *path) {
     return (0);
 }
 
-off_t 
+static off_t 
 _getFileSizeRecursive(const char *path) {
     off_t accumulatedSize = 0;
     DIR *dir = NULL;
@@ -559,7 +568,7 @@ _getFileSizeRecursive(const char *path) {
     return accumulatedSize;
 }
 
-int
+static int
 _hasValidCache(const char *path, struct stat *stbuf) {
     int status;
     char cachePath[MAX_NAME_LEN];
@@ -594,7 +603,7 @@ _hasValidCache(const char *path, struct stat *stbuf) {
     return (0);
 }
 
-int
+static int
 _invalidateCache(const char *path) {
     int status;
     char cachePath[MAX_NAME_LEN];
@@ -626,7 +635,7 @@ _invalidateCache(const char *path) {
     return status;
 }
 
-int
+static int
 _findOldestCache(const char *path, char *oldCachePath, struct stat *oldStatbuf) {
     int status;    
     DIR *dir = NULL;
@@ -697,7 +706,7 @@ _findOldestCache(const char *path, char *oldCachePath, struct stat *oldStatbuf) 
     return (0);
 }
 
-int
+static int
 _evictOldCache(off_t sizeNeeded) {
     int status;
     char oldCachePath[MAX_NAME_LEN];
@@ -735,7 +744,7 @@ _evictOldCache(off_t sizeNeeded) {
     return (0);
 }
 
-int
+static int
 _getiRODSPath(const char *path, char *iRODSPath) {
     int len;
     char *tmpPtr1, *tmpPtr2;
@@ -750,30 +759,30 @@ _getiRODSPath(const char *path, char *iRODSPath) {
 
     if (len == 0) {
     	/* just copy rodsCwd */
-        rstrcpy (iRODSPath, RodsEnv->rodsCwd, MAX_NAME_LEN);
+        rstrcpy (iRODSPath, PreloadRodsEnv->rodsCwd, MAX_NAME_LEN);
         return (0);
     } else if (strcmp (path, ".") == 0 || strcmp (path, "./") == 0) {
     	/* '.' or './' */
-	    rstrcpy (iRODSPath, RodsEnv->rodsCwd, MAX_NAME_LEN);
+	    rstrcpy (iRODSPath, PreloadRodsEnv->rodsCwd, MAX_NAME_LEN);
     	return (0);
     } else if (strcmp (path, "~") == 0 || strcmp (path, "~/") == 0 || strcmp (path, "^") == 0 || strcmp (path, "^/") == 0) { 
     	/* ~ or ~/ */
-        rstrcpy (iRODSPath, RodsEnv->rodsHome, MAX_NAME_LEN);
+        rstrcpy (iRODSPath, PreloadRodsEnv->rodsHome, MAX_NAME_LEN);
         return (0);
     } else if (path[0] == '~' || path[0] == '^') {
 	    if (path[1] == '/') {
-	        snprintf (iRODSPath, MAX_NAME_LEN, "%s/%s", RodsEnv->rodsHome, path + 2);
+	        snprintf (iRODSPath, MAX_NAME_LEN, "%s/%s", PreloadRodsEnv->rodsHome, path + 2);
 	    } else {
 	        /* treat it like a relative path */
-	        snprintf (iRODSPath, MAX_NAME_LEN, "%s/%s", RodsEnv->rodsCwd, path + 2);
+	        snprintf (iRODSPath, MAX_NAME_LEN, "%s/%s", PreloadRodsEnv->rodsCwd, path + 2);
 	    }
     } else if (path[0] == '/') {
 	    /* full path */
         //rstrcpy (iRODSPath, (char*)path, MAX_NAME_LEN);
-        snprintf (iRODSPath, MAX_NAME_LEN, "%s%s", RodsEnv->rodsCwd, path);
+        snprintf (iRODSPath, MAX_NAME_LEN, "%s%s", PreloadRodsEnv->rodsCwd, path);
     } else {
 	    /* a relative path */
-        snprintf (iRODSPath, MAX_NAME_LEN, "%s/%s", RodsEnv->rodsCwd, path);
+        snprintf (iRODSPath, MAX_NAME_LEN, "%s/%s", PreloadRodsEnv->rodsCwd, path);
     }
 
     /* take out any "//" */
@@ -859,7 +868,7 @@ _getiRODSPath(const char *path, char *iRODSPath) {
     return (0);
 }
 
-int
+static int
 _getCachePath(const char *path, char *cachePath) {
     if (path == NULL || cachePath == NULL) {
         rodsLog (LOG_ERROR, "_getCachePath: given path or cachePath is NULL");
@@ -874,7 +883,7 @@ _getCachePath(const char *path, char *cachePath) {
     return (0);
 }
 
-int
+static int
 _getCacheWorkPath(const char *path, char *cachePath) {
     if (path == NULL || cachePath == NULL) {
         rodsLog (LOG_ERROR, "_getCacheWorkPath: given path or cachePath is NULL");
@@ -889,7 +898,7 @@ _getCacheWorkPath(const char *path, char *cachePath) {
     return (0);
 }
 
-int
+static int
 _preparePreloadCacheDir(const char *path) {
     int status;
 
@@ -898,7 +907,7 @@ _preparePreloadCacheDir(const char *path) {
     return status; 
 }
 
-int
+static int
 _prepareDir(const char *path) {
     int status;
     char dir[MAX_NAME_LEN], file[MAX_NAME_LEN];
@@ -916,7 +925,7 @@ _prepareDir(const char *path) {
     return status;
 }
 
-int
+static int
 _isDirectory(const char *path) {
     struct stat stbuf;
 
@@ -932,7 +941,7 @@ _isDirectory(const char *path) {
     return (-1);
 }
 
-int
+static int
 _makeDirs(const char *path) {
     char dir[MAX_NAME_LEN];
     char file[MAX_NAME_LEN];
@@ -963,7 +972,7 @@ _makeDirs(const char *path) {
     return status;
 }
 
-int
+static int
 _renameCache(const char *fromPath, const char *toPath) {
     int status;
     char fromCachePath[MAX_NAME_LEN];
@@ -985,7 +994,7 @@ _renameCache(const char *fromPath, const char *toPath) {
     return status;
 }
 
-int
+static int
 _truncateCache(const char *path, off_t size) {
     int status;
     char cachePath[MAX_NAME_LEN];
@@ -1001,18 +1010,18 @@ _truncateCache(const char *path, off_t size) {
     return status;
 }
 
-int
+static int
 _removeAllCaches() {
     int status;
     
-    if((status = _removeDir(PreloadConfig.cachePath)) < 0) {
+    if((status = _emptyDir(PreloadConfig.cachePath)) < 0) {
         return status;
     }
 
     return 0;
 }
 
-int
+static int
 _removeAllIncompleteCaches(const char *path) {
     int status;
 
@@ -1023,7 +1032,7 @@ _removeAllIncompleteCaches(const char *path) {
     return 0;
 }
 
-int
+static int
 _removeIncompleteCaches(const char *path) {
     DIR *dir = opendir(path);
     char filepath[MAX_NAME_LEN];
@@ -1081,7 +1090,48 @@ _removeIncompleteCaches(const char *path) {
     return statusFailed;
 }
 
-int
+static int
+_emptyDir(const char *path) {
+    DIR *dir = opendir(path);
+    char filepath[MAX_NAME_LEN];
+    struct dirent *entry;
+    struct stat statbuf;
+    int status;
+    int statusFailed = 0;
+
+    if (dir != NULL) {
+        while ((entry = readdir(dir)) != NULL) {
+            if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) {
+                continue;
+            }
+
+            snprintf(filepath, MAX_NAME_LEN, "%s/%s", path, entry->d_name);
+            rodsLog (LOG_DEBUG, "_emptyDir: removing : %s", dir);
+
+            if (!stat(filepath, &statbuf)) {
+                // has entry
+                if (S_ISDIR(statbuf.st_mode)) {
+                    // directory
+                    status = _removeDir(filepath);
+                    if(status < 0) {
+                        statusFailed = status;
+                    }
+                } else {
+                    // file
+                    status = unlink(filepath);
+                    if(status < 0) {
+                        statusFailed = status;
+                    }
+                }
+            }
+        }
+        closedir(dir);
+    }
+
+    return statusFailed;
+}
+
+static int
 _removeDir(const char *path) {
     DIR *dir = opendir(path);
     char filepath[MAX_NAME_LEN];
@@ -1126,7 +1176,7 @@ _removeDir(const char *path) {
     return statusFailed;
 }
 
-int
+static int
 _isEmptyDir(const char *path) {
     DIR *dir = opendir(path);
     struct dirent *entry;
@@ -1146,23 +1196,14 @@ _isEmptyDir(const char *path) {
     return entryCount;
 }
 
-struct timeval
+static struct timeval
 _getCurrentTime() {
 	struct timeval s_now;
 	gettimeofday(&s_now, NULL);
 	return s_now;
 }
 
-double
-_timeDiff(struct timeval a, struct timeval b) {
-	double time1;
-	double time2;
-	time1 = a.tv_sec + a.tv_usec / (double)1000000;
-	time2 = b.tv_sec + b.tv_usec / (double)1000000;
-	return time1 - time2;
-}
-
-time_t
+static time_t
 _convTime(struct timeval a) {
     return (time_t)a.tv_sec;
 }

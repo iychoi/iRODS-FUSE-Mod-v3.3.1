@@ -60,6 +60,7 @@ LIB_OBJS =	\
 		$(objDir)/iFuseLib.PathCache.o \
 		$(objDir)/iFuseLib.Utils.o \
         $(objDir)/iFuseLib.Preload.o \
+        $(objDir)/iFuseLib.LazyUpload.o \
 		$(reObjDir)/list.o \
 		$(reObjDir)/hashtable.o \
 		$(reObjDir)/region.o \

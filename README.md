@@ -14,16 +14,24 @@ FUSE Configuration Options
 --------------------------
 
 - "--preload" : use preload
+- "--preload-clear-cache" : clear preload caches
 - "--preload-cache-dir" : specify preload cache directory, if not specified, "/tmp/fusePreloadCache/" will be used
 - "--preload-cache-max" : specify preload cache max limit (in bytes)
 - "--preload-file-min" : specify minimum file size that will be preloaded (in bytes)
 
-If you just want to use the preloading without configuring other parameters, you will need to give "--preload" option. If you use any other options that relate to the preloading, you don't need to give "--preload". Those options will also set "--preload" option by default.
+- "--lazyupload" : use lazy-upload
+- "--lazyupload-buffer-dir" : specify lazy-upload buffer directory, if not specified, "/tmp/fuseLazyUploadBuffer/" will be used
+
+If you just want to use the preloading without configuring other parameters that relate to the preloading feature, you will need to give "--preload" option. If you use any other options that relate to the preloading, you don't need to give "--preload". Those options will also set "--preload" option by default.
+
+If you just want to use the lazy-uploading without configuring other parameters that relate to the lazy-uploading feature, you will need to give "--lazyupload" option. If you use any other options that relate to the lazy-uploading, you don't need to give "--lazyupload". Those options will also set "--lazyupload" option by default.
 
 Performance Metrics
 -------------------
 
 Tested with iPlant Atmosphere virtual instance and iPlant DataStore(iRODS).
+
+File Read Performance
 
 File Size | iRODS-FUSE (Unmodified) | iRODS-FUSE-Mod
 --- | --- | ---
@@ -33,3 +41,8 @@ File Size | iRODS-FUSE (Unmodified) | iRODS-FUSE-Mod
 500MB | 17 seconds | 7.4 seconds
 1GB | 34.7 seconds | 14.1 seconds
 2GB | 71.0 seconds | 34.5 seconds
+
+File Write Performance
+
+- to be filled
+
