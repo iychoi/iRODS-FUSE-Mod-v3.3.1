@@ -32,12 +32,11 @@ static int _hasBufferredFile(const char *path);
 static int _removeAllBufferredFiles();
 static int _removeBufferredFile(const char *path);
 static int _prepareDir(const char *path);
+static int _getParentDir(const char *path, char *parent);
 static int _isDirectory(const char *path);
 static int _makeDirs(const char *path);
 static int _emptyDir(const char *path);
 static int _removeDir(const char *path);
-static struct timeval _getCurrentTime();
-static time_t _convTime(struct timeval);
 
 /**************************************************************************
  * public functions
@@ -91,10 +90,10 @@ prepareLazyUploadBufferredFile(const char *path) {
         return status;
     }
 
-    status = _getBufferPath(path, bufferPath);
+    status = _getBufferPath(iRODSPath, bufferPath);
     if(status < 0) {
         rodsLogError(LOG_ERROR, status, "prepareLazyUploadBufferredFile: _getBufferPath error.");
-        rodsLog (LOG_ERROR, "prepareLazyUploadBufferredFile: failed to get buffer path - %s", path);
+        rodsLog (LOG_ERROR, "prepareLazyUploadBufferredFile: failed to get buffer path - %s", iRODSPath);
         return status;
     }
 
@@ -102,7 +101,7 @@ prepareLazyUploadBufferredFile(const char *path) {
     _prepareDir(bufferPath);
 
     rodsLog (LOG_DEBUG, "prepareLazyUploadBufferredFile: create a bufferred file - %s", iRODSPath);    
-    int desc = open (bufferPath, O_RDWR|O_CREAT);
+    int desc = open (bufferPath, O_RDWR|O_CREAT, 0755);
     close (desc);
 
     return status;
@@ -116,12 +115,20 @@ uploadFile (const char *path) {
     rErrMsg_t errMsg;
     char iRODSPath[MAX_NAME_LEN];
     char bufferPath[MAX_NAME_LEN];
+    char destiRODSDir[MAX_NAME_LEN];
 
     // convert input path to iRODSPath
     status = _getiRODSPath(path, iRODSPath);
     if(status < 0) {
         rodsLogError(LOG_ERROR, status, "uploadFile: _getiRODSPath error.");
         rodsLog (LOG_ERROR, "uploadFile: failed to get iRODS path - %s", path);
+        return status;
+    }
+
+    status = _getParentDir(iRODSPath, destiRODSDir);
+    if(status < 0) {
+        rodsLogError(LOG_ERROR, status, "uploadFile: _getParentDir error.");
+        rodsLog (LOG_ERROR, "uploadFile: failed to get parent dir - %s", iRODSPath);
         return status;
     }
 
@@ -144,7 +151,7 @@ uploadFile (const char *path) {
     // set dest path
     rodsPathInp.destPath = ( rodsPath_t* )malloc( sizeof( rodsPath_t ) );
     memset( rodsPathInp.destPath, 0, sizeof( rodsPath_t ) );
-    rstrcpy( rodsPathInp.destPath->inPath, iRODSPath, MAX_NAME_LEN );
+    rstrcpy( rodsPathInp.destPath->inPath, destiRODSDir, MAX_NAME_LEN );
     status = parseRodsPath (rodsPathInp.destPath, LazyUploadRodsEnv);
     if(status < 0) {
         rodsLogError(LOG_ERROR, status, "uploadFile: parseRodsPath error.");
@@ -168,13 +175,16 @@ uploadFile (const char *path) {
         }
     }
 
-    //TODO: upload bufferred file here
-    rodsLog (LOG_DEBUG, "uploadFile: upload %s", iRODSPath);
+    // upload bufferred file
+    rodsLog (LOG_DEBUG, "uploadFile: upload %s", bufferPath);
+    bool prev = LazyUploadRodsArgs->force;
+    LazyUploadRodsArgs->force = True;
     status = putUtil (&conn, LazyUploadRodsEnv, LazyUploadRodsArgs, &rodsPathInp);
-    rodsLog (LOG_DEBUG, "uploadFile: complete uploading %s", iRODSPath);
+    LazyUploadRodsArgs->force = prev;
+    rodsLog (LOG_DEBUG, "uploadFile: complete uploading %s -> %s", bufferPath, destiRODSDir);
 
     // clear buffer
-    _removeBufferredFile(iRODSPath);
+    //_removeBufferredFile(iRODSPath);
 
     // Disconnect 
     rcDisconnect(conn);
@@ -234,10 +244,13 @@ _hasBufferredFile(const char *path) {
     }
 
 	if ((status = _getBufferPath(path, bufferPath)) < 0) {
+        rodsLogError(LOG_ERROR, status, "_hasBufferredFile: _getBufferPath error.");
         return status;
     }
 
     if ((status = stat(bufferPath, &stbufCache)) < 0) {
+        //rodsLog (LOG_ERROR, "_hasBufferredFile: stat error for %s", bufferPath);
+        //rodsLogError(LOG_ERROR, status, "_hasBufferredFile: stat error");
         return status;
     }
 
@@ -411,6 +424,22 @@ _prepareDir(const char *path) {
 }
 
 static int
+_getParentDir(const char *path, char *parent) {
+    char dir[MAX_NAME_LEN], file[MAX_NAME_LEN];
+
+    if (path == NULL) {
+        rodsLog (LOG_ERROR, "_getParentDir: input path is NULL");
+        return (SYS_INTERNAL_NULL_INPUT_ERR);
+    }
+
+    splitPathByKey ((char*) path, dir, file, '/');
+    
+    rstrcpy (parent, dir, MAX_NAME_LEN);
+
+    return (0);
+}
+
+static int
 _isDirectory(const char *path) {
     struct stat stbuf;
 
@@ -567,16 +596,4 @@ _removeDir(const char *path) {
     }
 
     return statusFailed;
-}
-
-static struct timeval
-_getCurrentTime() {
-	struct timeval s_now;
-	gettimeofday(&s_now, NULL);
-	return s_now;
-}
-
-static time_t
-_convTime(struct timeval a) {
-    return (time_t)a.tv_sec;
 }

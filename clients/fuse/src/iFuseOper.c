@@ -829,12 +829,14 @@ struct fuse_file_info *fi)
 {
     int descInx;
     int status;
+    int found = FALSE;
 
     rodsLog (LOG_DEBUG, "irodsRead: %s", path);
 
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
     // check local cache
     rodsLog (LOG_DEBUG, "irodsRead: read %s, o:%ld, l:%ld\n", path, offset, size);
+    found = FALSE;
     if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
         char preloadedFilePath[MAX_NAME_LEN];
         if (findPreloadCachePath (path, preloadedFilePath) >= 0) {
@@ -845,8 +847,11 @@ struct fuse_file_info *fi)
             lseek (desc, offset, SEEK_SET);
             status = read (desc, buf, size);
             close (desc);
+            found = TRUE;
         }
-    } else if (isLazyUploadEnabled() == 0 && isLazyUploadBufferredFile (path) >= 0) {
+    }
+
+    if (!found && isLazyUploadEnabled() == 0 && isLazyUploadBufferredFile (path) >= 0) {
         char lazyUploadBufferredFilePath[MAX_NAME_LEN];
         if (findLazyUploadBufferredFilePath (path, lazyUploadBufferredFilePath) >= 0) {
             rodsLog (LOG_DEBUG, "irodsRead: read from the bufferred lazy upload file (%s)\n", lazyUploadBufferredFilePath);
@@ -857,7 +862,9 @@ struct fuse_file_info *fi)
             status = read (desc, buf, size);
             close (desc);
         }
-    } else {
+    }
+
+    if (!found) {
         rodsLog (LOG_DEBUG, "irodsRead: read from irods\n");
 #endif
         descInx = fi->fh;

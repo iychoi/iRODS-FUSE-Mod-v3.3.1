@@ -517,10 +517,13 @@ _hasCache(const char *path) {
     }
 
 	if ((status = _getCachePath(path, cachePath)) < 0) {
+        rodsLogError(LOG_ERROR, status, "_hasCache: _getCachePath error.");
         return status;
     }
 
     if ((status = stat(cachePath, &stbufCache)) < 0) {
+        //rodsLog (LOG_ERROR, "_hasCache: stat error for %s", cachePath);
+        //rodsLogError(LOG_ERROR, status, "_hasCache: stat error");
         return status;
     }
 
