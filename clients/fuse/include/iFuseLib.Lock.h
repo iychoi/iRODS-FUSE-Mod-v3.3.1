@@ -43,6 +43,7 @@ typedef struct ConcurrentList {
 	extern boost::mutex              ConnManagerLock;
 	extern boost::condition_variable ConnManagerCond;
     extern boost::mutex              PreloadLock;
+    extern boost::mutex              LazyUploadLock;
 #else
 	#include <pthread.h>
 	extern pthread_mutex_t PathCacheLock;
@@ -50,6 +51,7 @@ typedef struct ConcurrentList {
 	extern pthread_mutex_t ConnManagerLock;
 	extern pthread_cond_t ConnManagerCond;
     extern pthread_mutex_t PreloadLock;
+    extern pthread_mutex_t LazyUploadLock;
 #endif
 
 #ifdef USE_BOOST

@@ -417,18 +417,18 @@ usage ()
 "Options are:",
 " -h  this help",
 " -d  FUSE debug mode",
+" -o  opt,[opt...]  FUSE mount options",
 
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
-" --preload  use preload",
-" --preload-clear-cache  clear preload caches",
-" --preload-cache-dir  specify preload cache directory",
-" --preload-cache-max  specify preload cache max limit (in bytes)", 
-" --preload-file-min specify minimum file size that will be preloaded (in bytes)",
-" --lazyupload  use lazy-upload",
+" --preload                use preload",
+" --preload-clear-cache    clear preload caches",
+" --preload-cache-dir      specify preload cache directory",
+" --preload-cache-max      specify preload cache max limit (in bytes)", 
+" --preload-file-min       specify minimum file size that will be preloaded (in bytes)",
+" --lazyupload             use lazy-upload",
 " --lazyupload-buffer-dir  specify lazy-upload buffer directory",
 #endif
 
-" -o  opt,[opt...]  FUSE mount options",
 ""};
     int i;
     for (i=0;;i++) {

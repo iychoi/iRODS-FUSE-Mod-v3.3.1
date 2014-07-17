@@ -24,6 +24,7 @@ static rodsArguments_t *PreloadRodsArgs;
 
 static concurrentList_t *PreloadThreadList;
 static Hashtable *PreloadThreadTable;
+static Hashtable *PreloadFileHandleTable;
 
 /**************************************************************************
  * function definitions
@@ -73,6 +74,7 @@ initPreload (preloadConfig_t *preloadConfig, rodsEnv *myPreloadRodsEnv, rodsArgu
 
     // init hashtables
     PreloadThreadTable = newHashTable(NUM_PRELOAD_THREAD_HASH_SLOT);
+    PreloadFileHandleTable = newHashTable(NUM_PRELOAD_FILEHANDLE_HASH_SLOT);
 
     // init lists
     PreloadThreadList = newConcurrentList();
@@ -155,7 +157,7 @@ preloadFile (const char *path, struct stat *stbuf) {
         return status;
     }
 
-    // check the given file is already preloaded or being preloading
+    // check the given file is already preloaded or preloading
     LOCK(PreloadLock);
 
     // check the given file is preloading
@@ -322,18 +324,130 @@ isPreloaded (const char *path) {
 }
 
 int
-findPreloadCachePath (const char *path, char *preloadPath) {
+checkPreloadFileHandleTable(const char *path) {
     int status;
     char iRODSPath[MAX_NAME_LEN];
+    preloadFileHandleInfo_t *preloadFileHandleInfo = NULL;
 
     status = _getiRODSPath(path, iRODSPath);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "findPreloadPath: _getiRODSPath error.");
-        rodsLog (LOG_ERROR, "findPreloadPath: failed to get iRODS path - %s", path);
+        rodsLogError(LOG_ERROR, status, "checkPreloadFileHandleTable: _getiRODSPath error.");
+        rodsLog (LOG_ERROR, "checkPreloadFileHandleTable: failed to get iRODS path - %s", path);
         return status;
     }
 
-    return _getCachePath(iRODSPath, preloadPath);
+    LOCK(PreloadLock);
+
+    preloadFileHandleInfo = (preloadFileHandleInfo_t *)lookupFromHashTable(PreloadFileHandleTable, iRODSPath);
+    if(preloadFileHandleInfo != NULL) {
+        // has preload file handle opened
+        if(preloadFileHandleInfo->handle > 0) {
+            UNLOCK(PreloadLock);
+            return 0;
+        }
+    }
+    
+    UNLOCK(PreloadLock);
+
+    return -1;
+}
+
+int
+readPreloadedFile (const char *path, char *buf, size_t size, off_t offset) {
+    int status;
+    char iRODSPath[MAX_NAME_LEN];
+    char preloadCachePath[MAX_NAME_LEN];
+    preloadFileHandleInfo_t *preloadFileHandleInfo = NULL;
+    int desc;
+
+    status = _getiRODSPath(path, iRODSPath);
+    if(status < 0) {
+        rodsLogError(LOG_ERROR, status, "readPreloadedFile: _getiRODSPath error.");
+        rodsLog (LOG_ERROR, "readPreloadedFile: failed to get iRODS path - %s", path);
+        return status;
+    }
+
+    status = _getCachePath(iRODSPath, preloadCachePath);
+    if(status < 0) {
+        rodsLogError(LOG_ERROR, status, "readPreloadedFile: _getCachePath error.");
+        rodsLog (LOG_ERROR, "readPreloadedFile: failed to get cache path - %s", path);
+        return status;
+    }
+
+    LOCK(PreloadLock);
+
+    desc = -1;
+    preloadFileHandleInfo = (preloadFileHandleInfo_t *)lookupFromHashTable(PreloadFileHandleTable, iRODSPath);
+    if(preloadFileHandleInfo != NULL) {
+        // has preload file handle opened
+        if(preloadFileHandleInfo->handle > 0) {
+            desc = preloadFileHandleInfo->handle;
+            lseek (desc, offset, SEEK_SET);
+            status = read (desc, buf, size);
+            rodsLog (LOG_DEBUG, "readPreloadedFile: read from preloaded cache path - %s", iRODSPath);
+            
+            UNLOCK(PreloadLock);
+            return status;
+        }
+    }
+
+    // if preloaded cache file is not opened 
+    desc = open (preloadCachePath, O_RDWR);
+    lseek (desc, offset, SEEK_SET);
+    status = read (desc, buf, size);
+
+    if(desc > 0) {
+        preloadFileHandleInfo = (preloadFileHandleInfo_t *)malloc(sizeof(preloadFileHandleInfo_t));
+        preloadFileHandleInfo->path = strdup(iRODSPath);
+        preloadFileHandleInfo->handle = desc;
+        INIT_STRUCT_LOCK((*preloadFileHandleInfo));
+
+        insertIntoHashTable(PreloadFileHandleTable, iRODSPath, preloadFileHandleInfo);
+    }
+
+    UNLOCK(PreloadLock);
+
+    return status;
+}
+
+int
+closePreloadedFile (const char *path) {
+    int status;
+    char iRODSPath[MAX_NAME_LEN];
+    preloadFileHandleInfo_t *preloadFileHandleInfo = NULL;
+
+    status = _getiRODSPath(path, iRODSPath);
+    if(status < 0) {
+        rodsLogError(LOG_ERROR, status, "closePreloadedFile: _getiRODSPath error.");
+        rodsLog (LOG_ERROR, "closePreloadedFile: failed to get iRODS path - %s", path);
+        return status;
+    }
+
+    LOCK(PreloadLock);
+
+    preloadFileHandleInfo = (preloadFileHandleInfo_t *)lookupFromHashTable(PreloadFileHandleTable, iRODSPath);
+    if(preloadFileHandleInfo != NULL) {
+        // has preload file handle opened
+        if(preloadFileHandleInfo->handle > 0) {
+            close(preloadFileHandleInfo->handle);
+            preloadFileHandleInfo->handle = -1;
+            rodsLog (LOG_DEBUG, "closePreloadedFile: close preloaded cache path - %s", iRODSPath);
+            
+            if(preloadFileHandleInfo->path != NULL) {
+                free(preloadFileHandleInfo->path);
+            }
+    
+            // remove from hash table
+            deleteFromHashTable(PreloadFileHandleTable, iRODSPath);
+
+            UNLOCK(PreloadLock);
+            return status;
+        }
+    }
+    
+    UNLOCK(PreloadLock);
+
+    return status;
 }
 
 /**************************************************************************

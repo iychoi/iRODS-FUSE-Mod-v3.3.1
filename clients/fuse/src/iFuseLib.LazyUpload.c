@@ -21,6 +21,7 @@
 static lazyUploadConfig_t LazyUploadConfig;
 static rodsEnv *LazyUploadRodsEnv;
 static rodsArguments_t *LazyUploadRodsArgs;
+static Hashtable *LazyUploadFileTable;
 
 /**************************************************************************
  * function definitions
@@ -51,9 +52,15 @@ initLazyUpload (lazyUploadConfig_t *lazyUploadConfig, rodsEnv *myLazyUploadRodsE
     LazyUploadRodsEnv = myLazyUploadRodsEnv;
     LazyUploadRodsArgs = myLazyUploadRodsArgs;
 
+    // init hashtables
+    LazyUploadFileTable = newHashTable(NUM_LAZYUPLOAD_FILE_HASH_SLOT);
+
+    // init lock
+    INIT_LOCK(LazyUploadLock);
+
     _prepareLazyUploadBufferDir(lazyUploadConfig->bufferPath);
 
-    // remove incomplete lazy-upload bufferred files
+    // remove lazy-upload bufferred files
     _removeAllBufferredFiles();
 
     return (0);
@@ -64,6 +71,7 @@ uninitLazyUpload (lazyUploadConfig_t *lazyUploadConfig) {
     // remove incomplete lazy-upload caches
     _removeAllBufferredFiles();
 
+    FREE_LOCK(LazyUploadLock);
     return (0);
 }
 
@@ -79,6 +87,7 @@ isLazyUploadEnabled() {
 int
 prepareLazyUploadBufferredFile(const char *path) {
     int status;
+    lazyUploadFileInfo_t *lazyUploadFileInfo = NULL;
     char iRODSPath[MAX_NAME_LEN];
     char bufferPath[MAX_NAME_LEN];
 
@@ -97,10 +106,24 @@ prepareLazyUploadBufferredFile(const char *path) {
         return status;
     }
 
+    LOCK(LazyUploadLock);
+
+    // check the given file is lazy uploading
+    lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadFileTable, iRODSPath);
+    if(lazyUploadFileInfo != NULL) {
+        // remove from hash table
+        deleteFromHashTable(LazyUploadFileTable, iRODSPath);
+        // remove file
+        status = unlink(bufferPath);
+        if(status < 0) {
+            rodsLog (LOG_ERROR, "prepareLazyUploadBufferredFile: unlink failed - %s", iRODSPath);
+        }
+    }
+
     // make dir
     _prepareDir(bufferPath);
 
-    rodsLog (LOG_DEBUG, "prepareLazyUploadBufferredFile: create a bufferred file - %s", iRODSPath);    
+    rodsLog (LOG_DEBUG, "prepareLazyUploadBufferredFile: create a bufferred file - %s", iRODSPath);
     int desc = open (bufferPath, O_RDWR|O_CREAT, 0755);
     close (desc);
 

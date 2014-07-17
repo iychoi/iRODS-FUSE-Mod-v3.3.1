@@ -829,29 +829,18 @@ struct fuse_file_info *fi)
 {
     int descInx;
     int status;
-    int found = FALSE;
 
     rodsLog (LOG_DEBUG, "irodsRead: %s", path);
 
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
     // check local cache
     rodsLog (LOG_DEBUG, "irodsRead: read %s, o:%ld, l:%ld\n", path, offset, size);
-    found = FALSE;
-    if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
-        char preloadedFilePath[MAX_NAME_LEN];
-        if (findPreloadCachePath (path, preloadedFilePath) >= 0) {
-            rodsLog (LOG_DEBUG, "irodsRead: read from a preloaded file (%s)\n", preloadedFilePath);
-
-            // read from cache
-            int desc = open (preloadedFilePath, O_RDWR);
-            lseek (desc, offset, SEEK_SET);
-            status = read (desc, buf, size);
-            close (desc);
-            found = TRUE;
-        }
+    if (isPreloadEnabled() == 0 && checkPreloadFileHandleTable (path) >= 0 && isPreloaded (path) >= 0) {
+        status = readPreloadedFile (path, buf, size, offset);
+        return status;
     }
 
-    if (!found && isLazyUploadEnabled() == 0 && isLazyUploadBufferredFile (path) >= 0) {
+    if (isLazyUploadEnabled() == 0 && isLazyUploadBufferredFile (path) >= 0) {
         char lazyUploadBufferredFilePath[MAX_NAME_LEN];
         if (findLazyUploadBufferredFilePath (path, lazyUploadBufferredFilePath) >= 0) {
             rodsLog (LOG_DEBUG, "irodsRead: read from the bufferred lazy upload file (%s)\n", lazyUploadBufferredFilePath);
@@ -861,22 +850,20 @@ struct fuse_file_info *fi)
             lseek (desc, offset, SEEK_SET);
             status = read (desc, buf, size);
             close (desc);
+            return status;
         }
     }
 
-    if (!found) {
-        rodsLog (LOG_DEBUG, "irodsRead: read from irods\n");
+    rodsLog (LOG_DEBUG, "irodsRead: read from irods\n");
 #endif
-        descInx = fi->fh;
 
-        if (checkFuseDesc (descInx) < 0) {
-        	return -EBADF;
-        }
+    descInx = fi->fh;
 
-        status = _ifuseRead (&IFuseDesc[descInx], buf, size, offset);
-#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
+    if (checkFuseDesc (descInx) < 0) {
+    	return -EBADF;
     }
-#endif
+
+    status = _ifuseRead (&IFuseDesc[descInx], buf, size, offset);
     return status;
 }
 
@@ -902,20 +889,19 @@ struct fuse_file_info *fi)
             lseek (desc, offset, SEEK_SET);
             status = write (desc, buf, size);
             close (desc);
+            return status;
         }
-    } else {
-#endif
-        descInx = fi->fh;
-
-        if (checkFuseDesc (descInx) < 0) {
-            return -EBADF;
-        }
-
-        status = _ifuseWrite (&IFuseDesc[descInx], (char *)buf, size, offset);
-        unlockDesc (descInx);
-#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
     }
 #endif
+
+    descInx = fi->fh;
+
+    if (checkFuseDesc (descInx) < 0) {
+        return -EBADF;
+    }
+
+    status = _ifuseWrite (&IFuseDesc[descInx], (char *)buf, size, offset);
+    unlockDesc (descInx);
     return status;
 }
 
@@ -954,32 +940,34 @@ irodsRelease (const char *path, struct fuse_file_info *fi)
 
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
     // check local cache
+    if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
+        rodsLog (LOG_DEBUG, "irodsRelease: %s", path);
+        closePreloadedFile (path);
+    }
+
     if (isLazyUploadEnabled() == 0 && isLazyUploadBufferredFile (path) >= 0) {
         rodsLog (LOG_DEBUG, "irodsRelease: %s", path);
         uploadFile(path);
-    } else {
-#endif
-        descInx = fi->fh;
-
-        /* if (checkFuseDesc (descInx) < 0) {
-            return -EBADF;
-        } */
-
-        status = ifuseClose (&IFuseDesc[descInx]);
-
-        if (status < 0) {
-            if ((myError = getErrno (status)) > 0) {
-                return (-myError);
-            } else {
-                return -ENOENT;
-            }
-        } else {
-            return (0);
-        }
-#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
     }
-    return (0);
 #endif
+
+    descInx = fi->fh;
+
+    /* if (checkFuseDesc (descInx) < 0) {
+        return -EBADF;
+    } */
+
+    status = ifuseClose (&IFuseDesc[descInx]);
+
+    if (status < 0) {
+        if ((myError = getErrno (status)) > 0) {
+            return (-myError);
+        } else {
+            return -ENOENT;
+        }
+    } else {
+        return (0);
+    }
 }
 
 int 
