@@ -271,8 +271,13 @@ irodsMknod (const char *path, mode_t mode, dev_t rdev)
     unuseIFuseConn (iFuseConn);
 
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
+    // remove preloaded cache
+    if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
+        invalidatePreloadedCache(path);
+    }
+
+    // lazy upload starts
     if (isLazyUploadEnabled() == 0) {
-        // lazy upload
         rodsLog (LOG_DEBUG, "irodsMknod: create %s", path);
         status = prepareLazyUploadBufferredFile(path);
 
@@ -365,7 +370,9 @@ irodsUnlink (const char *path)
 
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
     // remove preloaded cache
-    invalidatePreloadedCache(path);
+    if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
+        invalidatePreloadedCache(path);
+    }
 #endif
 
 	status = 0;
@@ -418,7 +425,9 @@ irodsRmdir (const char *path)
 
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
         // remove preloaded cache
-        invalidatePreloadedCache(path);
+        if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
+            invalidatePreloadedCache(path);
+        }
 #endif
         status = 0;
     } else {
@@ -508,7 +517,9 @@ irodsRename (const char *from, const char *to)
 
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
     // rename preloaded cache
-    status = renamePreloadedCache (from, to);
+    if (isPreloadEnabled() == 0 && isPreloaded (from) >= 0) {
+        status = renamePreloadedCache (from, to);
+    }
 #endif
 
     unuseIFuseConn (iFuseConn);
@@ -662,7 +673,9 @@ irodsTruncate (const char *path, off_t size)
 
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
         // truncate
-        status = truncatePreloadedCache (path, size);
+        if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
+            status = truncatePreloadedCache (path, size);
+        }
 #endif
 
         status = 0;
@@ -757,7 +770,9 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
     if ((flags & O_ACCMODE) == O_WRONLY || (flags & O_ACCMODE) == O_RDWR) {
         // invalidate cache as it will be overwritten
-        invalidatePreloadedCache(path);
+        if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
+            invalidatePreloadedCache(path);
+        }
     } else if ((flags & O_ACCMODE) == O_RDONLY && stbuf.st_size > MAX_READ_CACHE_SIZE) {
         if (isPreloadEnabled() == 0) {
             // preload irods file
