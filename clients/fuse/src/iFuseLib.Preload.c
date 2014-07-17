@@ -395,6 +395,7 @@ readPreloadedFile (const char *path, char *buf, size_t size, off_t offset) {
     desc = open (preloadCachePath, O_RDWR);
     lseek (desc, offset, SEEK_SET);
     status = read (desc, buf, size);
+    rodsLog (LOG_DEBUG, "readPreloadedFile: read from preloaded cache path - %s", iRODSPath);
 
     if(desc > 0) {
         preloadFileHandleInfo = (preloadFileHandleInfo_t *)malloc(sizeof(preloadFileHandleInfo_t));
