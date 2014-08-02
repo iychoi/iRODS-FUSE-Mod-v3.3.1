@@ -569,7 +569,7 @@ _download(const char *path, struct stat *stbufIn) {
     conn = rcConnect (PreloadRodsEnv->rodsHost, PreloadRodsEnv->rodsPort, PreloadRodsEnv->rodsUserName, PreloadRodsEnv->rodsZone, RECONN_TIMEOUT, &errMsg);
     if (conn == NULL) {
         rodsLog (LOG_ERROR, "_download: error occurred while connecting to irods");
-        return -1;
+        return -EPIPE;
     }
 
     // Login

@@ -201,7 +201,7 @@ openLazyUploadBufferredFile(const char *path, int accmode) {
         if(lazyUploadFileInfo->handle > 0) {
             rodsLog (LOG_ERROR, "openLazyUploadBufferredFile: same file is already opened for lazy-upload - %s", iRODSPath);
             UNLOCK(LazyUploadLock);
-            return -1;
+            return -EMFILE;
         } else {
             // update file handle and access mode
             desc = open (bufferPath, O_RDWR|O_CREAT|O_TRUNC, 0755);
@@ -215,7 +215,7 @@ openLazyUploadBufferredFile(const char *path, int accmode) {
     } else {
         rodsLog (LOG_ERROR, "openLazyUploadBufferredFile: mknod is not called before opening - %s", iRODSPath);
         UNLOCK(LazyUploadLock);
-        return -1;
+        return -EBADF;
     }
 
     UNLOCK(LazyUploadLock);
@@ -260,12 +260,12 @@ writeLazyUploadBufferredFile (const char *path, const char *buf, size_t size, of
         } else {
             rodsLog (LOG_ERROR, "writeLazyUploadBufferredFile: wrong file descriptor - %s, %d", iRODSPath, lazyUploadFileInfo->handle);
             UNLOCK(LazyUploadLock);
-            return -1;
+            return -EBADF;
         }
     } else {
         rodsLog (LOG_ERROR, "writeLazyUploadBufferredFile: file is not opened - %s", iRODSPath);
         UNLOCK(LazyUploadLock);
-        return -1;
+        return -EBADF;
     }
 
     seek_status = lseek (desc, offset, SEEK_SET);
@@ -379,7 +379,7 @@ uploadFile (const char *path) {
     conn = rcConnect (LazyUploadRodsEnv->rodsHost, LazyUploadRodsEnv->rodsPort, LazyUploadRodsEnv->rodsUserName, LazyUploadRodsEnv->rodsZone, RECONN_TIMEOUT, &errMsg);
     if (conn == NULL) {
         rodsLog (LOG_ERROR, "uploadFile: error occurred while connecting to irods");
-        return -1;
+        return -EPIPE;
     }
 
     // Login
