@@ -59,6 +59,7 @@ LIB_OBJS =	\
 		$(objDir)/iFuseLib.Lock.o \
 		$(objDir)/iFuseLib.PathCache.o \
 		$(objDir)/iFuseLib.Utils.o \
+        $(objDir)/iFuseLib.FSUtils.o \
         $(objDir)/iFuseLib.Preload.o \
         $(objDir)/iFuseLib.LazyUpload.o \
 		$(reObjDir)/list.o \

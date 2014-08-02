@@ -150,7 +150,7 @@ typedef struct LazyUploadConfig {
 
 #define PRELOAD_FILES_IN_DOWNLOADING_EXT    ".part"
 #define NUM_PRELOAD_THREAD_HASH_SLOT	201
-#define NUM_LAZYUPLOAD_FILE_HASH_SLOT   201
+#define NUM_LAZYUPLOAD_FILEHANDLE_HASH_SLOT   201
 
 typedef struct PreloadThreadInfo {
 #ifdef USE_BOOST
@@ -170,14 +170,15 @@ typedef struct PreloadThreadInfo {
 #define PRELOAD_THREAD_RUNNING    1
 #define PRELOAD_THREAD_IDLE    0
 
-typedef struct LazyUploadFileInfo {
+typedef struct LazyUploadFileHandleInfo {
     char *path;
+    int handle;
 #ifdef USE_BOOST
     boost::mutex* mutex;
 #else
     pthread_mutex_t lock;
 #endif
-} lazyUploadFileInfo_t;
+} lazyUploadFileHandleInfo_t;
 
 typedef struct PreloadThreadData {
     char *path;
@@ -327,9 +328,9 @@ truncatePreloadedCache (const char *path, off_t size);
 int
 isPreloaded (const char *path);
 int
-checkPreloadFileHandleTable(const char *path);
+openPreloadedFile (const char *path);
 int
-readPreloadedFile (const char *path, char *buf, size_t size, off_t offset);
+readPreloadedFile (int fileDesc, char *buf, size_t size, off_t offset);
 int
 closePreloadedFile (const char *path);
 int

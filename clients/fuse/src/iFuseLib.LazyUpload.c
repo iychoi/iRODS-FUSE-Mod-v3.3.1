@@ -4,15 +4,14 @@
 #include <assert.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/time.h>
 #include <sys/wait.h>
-#include <time.h>
 #include "irodsFs.h"
 #include "iFuseLib.h"
 #include "iFuseOper.h"
 #include "hashtable.h"
 #include "miscUtil.h"
 #include "iFuseLib.Lock.h"
+#include "iFuseLib.FSUtils.h"
 #include "putUtil.h"
 
 /**************************************************************************
@@ -21,23 +20,17 @@
 static lazyUploadConfig_t LazyUploadConfig;
 static rodsEnv *LazyUploadRodsEnv;
 static rodsArguments_t *LazyUploadRodsArgs;
-static Hashtable *LazyUploadFileTable;
+static Hashtable *LazyUploadFileHandleTable;
 
 /**************************************************************************
  * function definitions
  **************************************************************************/
 static int _prepareLazyUploadBufferDir(const char *path);
-static int _getiRODSPath(const char *path, char *iRODSPath);
 static int _getBufferPath(const char *path, char *bufferPath);
 static int _hasBufferredFile(const char *path);
 static int _removeAllBufferredFiles();
 static int _removeBufferredFile(const char *path);
-static int _prepareDir(const char *path);
-static int _getParentDir(const char *path, char *parent);
-static int _isDirectory(const char *path);
-static int _makeDirs(const char *path);
-static int _emptyDir(const char *path);
-static int _removeDir(const char *path);
+static int _getiRODSPath(const char *path, char *iRODSPath);
 
 /**************************************************************************
  * public functions
@@ -53,7 +46,7 @@ initLazyUpload (lazyUploadConfig_t *lazyUploadConfig, rodsEnv *myLazyUploadRodsE
     LazyUploadRodsArgs = myLazyUploadRodsArgs;
 
     // init hashtables
-    LazyUploadFileTable = newHashTable(NUM_LAZYUPLOAD_FILE_HASH_SLOT);
+    LazyUploadFileHandleTable = newHashTable(NUM_LAZYUPLOAD_FILEHANDLE_HASH_SLOT);
 
     // init lock
     INIT_LOCK(LazyUploadLock);
@@ -87,7 +80,7 @@ isLazyUploadEnabled() {
 int
 prepareLazyUploadBufferredFile(const char *path) {
     int status;
-    lazyUploadFileInfo_t *lazyUploadFileInfo = NULL;
+    lazyUploadFileHandleInfo_t *lazyUploadFileHandleInfo = NULL;
     char iRODSPath[MAX_NAME_LEN];
     char bufferPath[MAX_NAME_LEN];
 
@@ -109,10 +102,22 @@ prepareLazyUploadBufferredFile(const char *path) {
     LOCK(LazyUploadLock);
 
     // check the given file is lazy uploading
-    lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadFileTable, iRODSPath);
-    if(lazyUploadFileInfo != NULL) {
+    lazyUploadFileHandleInfo = (lazyUploadFileHandleInfo_t *)lookupFromHashTable(LazyUploadFileHandleTable, iRODSPath);
+    if(lazyUploadFileHandleInfo != NULL) {
+        // has lazy upload file handle opened
+        if(lazyUploadFileHandleInfo->handle > 0) {
+            close(lazyUploadFileHandleInfo->handle);
+            lazyUploadFileHandleInfo->handle = -1;
+            rodsLog (LOG_DEBUG, "prepareLazyUploadBufferredFile: close lazy upload cache handle - %s", iRODSPath);
+        }
+
+        if(lazyUploadFileHandleInfo->path != NULL) {
+            free(lazyUploadFileHandleInfo->path);
+        }
+
         // remove from hash table
-        deleteFromHashTable(LazyUploadFileTable, iRODSPath);
+        deleteFromHashTable(LazyUploadFileHandleTable, iRODSPath);
+
         // remove file
         status = unlink(bufferPath);
         if(status < 0) {
@@ -121,11 +126,31 @@ prepareLazyUploadBufferredFile(const char *path) {
     }
 
     // make dir
-    _prepareDir(bufferPath);
+    prepareDir(bufferPath);
 
+    // TODO : fix this
+    /*
+    // create an empty file
     rodsLog (LOG_DEBUG, "prepareLazyUploadBufferredFile: create a bufferred file - %s", iRODSPath);
     int desc = open (bufferPath, O_RDWR|O_CREAT, 0755);
     close (desc);
+
+    // add lazy upload cache handle to hash table
+    desc = open (preloadCachePath, O_RDWR);
+    lseek (desc, offset, SEEK_SET);
+    status = read (desc, buf, size);
+    rodsLog (LOG_DEBUG, "readPreloadedFile: read from preloaded cache path - %s", iRODSPath);
+
+    if(desc > 0) {
+        lazyUploadFileHandleInfo = (lazyUploadFileHandleInfo_t *)malloc(sizeof(lazyUploadFileHandleInfo_t));
+        lazyUploadFileHandleInfo->path = strdup(iRODSPath);
+        lazyUploadFileHandleInfo->handle = desc;
+        INIT_STRUCT_LOCK((*lazyUploadFileHandleInfo));
+
+        insertIntoHashTable(LazyUploadFileHandleTable, iRODSPath, lazyUploadFileHandleInfo);
+    }
+    */
+    UNLOCK(LazyUploadLock);
 
     return status;
 }
@@ -148,9 +173,9 @@ uploadFile (const char *path) {
         return status;
     }
 
-    status = _getParentDir(iRODSPath, destiRODSDir);
+    status = getParentDir(iRODSPath, destiRODSDir);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "uploadFile: _getParentDir error.");
+        rodsLogError(LOG_ERROR, status, "uploadFile: getParentDir error.");
         rodsLog (LOG_ERROR, "uploadFile: failed to get parent dir - %s", iRODSPath);
         return status;
     }
@@ -281,130 +306,6 @@ _hasBufferredFile(const char *path) {
 }
 
 static int
-_getiRODSPath(const char *path, char *iRODSPath) {
-    int len;
-    char *tmpPtr1, *tmpPtr2;
-    char tmpStr[MAX_NAME_LEN];
-
-    if (path == NULL || iRODSPath == NULL) {
-        rodsLog (LOG_ERROR, "_getiRODSPath: given path or iRODSPath is NULL");
-        return (SYS_INTERNAL_NULL_INPUT_ERR);
-    }
-
-    len = strlen (path);
-
-    if (len == 0) {
-    	/* just copy rodsCwd */
-        rstrcpy (iRODSPath, LazyUploadRodsEnv->rodsCwd, MAX_NAME_LEN);
-        return (0);
-    } else if (strcmp (path, ".") == 0 || strcmp (path, "./") == 0) {
-    	/* '.' or './' */
-	    rstrcpy (iRODSPath, LazyUploadRodsEnv->rodsCwd, MAX_NAME_LEN);
-    	return (0);
-    } else if (strcmp (path, "~") == 0 || strcmp (path, "~/") == 0 || strcmp (path, "^") == 0 || strcmp (path, "^/") == 0) { 
-    	/* ~ or ~/ */
-        rstrcpy (iRODSPath, LazyUploadRodsEnv->rodsHome, MAX_NAME_LEN);
-        return (0);
-    } else if (path[0] == '~' || path[0] == '^') {
-	    if (path[1] == '/') {
-	        snprintf (iRODSPath, MAX_NAME_LEN, "%s/%s", LazyUploadRodsEnv->rodsHome, path + 2);
-	    } else {
-	        /* treat it like a relative path */
-	        snprintf (iRODSPath, MAX_NAME_LEN, "%s/%s", LazyUploadRodsEnv->rodsCwd, path + 2);
-	    }
-    } else if (path[0] == '/') {
-	    /* full path */
-        //rstrcpy (iRODSPath, (char*)path, MAX_NAME_LEN);
-        snprintf (iRODSPath, MAX_NAME_LEN, "%s%s", LazyUploadRodsEnv->rodsCwd, path);
-    } else {
-	    /* a relative path */
-        snprintf (iRODSPath, MAX_NAME_LEN, "%s/%s", LazyUploadRodsEnv->rodsCwd, path);
-    }
-
-    /* take out any "//" */
-    while ((tmpPtr1 = strstr (iRODSPath, "//")) != NULL) {
-        rstrcpy (tmpStr, tmpPtr1 + 2, MAX_NAME_LEN);
-        rstrcpy (tmpPtr1 + 1, tmpStr, MAX_NAME_LEN);
-    }
-
-    /* take out any "/./" */
-    while ((tmpPtr1 = strstr (iRODSPath, "/./")) != NULL) {
-        rstrcpy (tmpStr, tmpPtr1 + 3, MAX_NAME_LEN);
-        rstrcpy (tmpPtr1 + 1, tmpStr, MAX_NAME_LEN);
-    }
-
-    /* take out any /../ */
-    while ((tmpPtr1 = strstr (iRODSPath, "/../")) != NULL) {  
-	    /* go back */
-	    tmpPtr2 = tmpPtr1 - 1;
-
-	    while (*tmpPtr2 != '/') {
-	        tmpPtr2 --;
-	        if (tmpPtr2 < iRODSPath) {
-		        rodsLog (LOG_ERROR, "_getiRODSPath: parsing error for %s", iRODSPath);
-		        return (USER_INPUT_PATH_ERR);
-	        }
-	    }
-
-        rstrcpy (tmpStr, tmpPtr1 + 4, MAX_NAME_LEN);
-        rstrcpy (tmpPtr2 + 1, tmpStr, MAX_NAME_LEN);
-    }
-
-    /* handle "/.", "/.." and "/" at the end */
-
-    len = strlen (iRODSPath);
-
-    tmpPtr1 = iRODSPath + len;
-
-    if ((tmpPtr2 = strstr (tmpPtr1 - 3, "/..")) != NULL) {
-        /* go back */
-        tmpPtr2 -= 1;
-        while (*tmpPtr2 != '/') {
-            tmpPtr2 --;
-            if (tmpPtr2 < iRODSPath) {
-                rodsLog (LOG_ERROR, "parseRodsPath: parsing error for %s", iRODSPath);
-                return (USER_INPUT_PATH_ERR);
-            }
-        }
-
-	    *tmpPtr2 = '\0';
-	    if (tmpPtr2 == iRODSPath) {
-            /* nothing, special case */
-	        *tmpPtr2++ = '/'; /* root */
-	        *tmpPtr2 = '\0';
-	    }
-
-        if (strlen(iRODSPath) >= MAX_PATH_ALLOWED-1) {
-            return (USER_PATH_EXCEEDS_MAX);
-        }
-	    return (0);
-    }
-
-    /* take out "/." */
-    if ((tmpPtr2 = strstr (tmpPtr1 - 2, "/.")) != NULL) {
-        *tmpPtr2 = '\0';
-        if (strlen(iRODSPath) >= MAX_PATH_ALLOWED-1) {
-    	    return (USER_PATH_EXCEEDS_MAX);
-        }
-        return (0);
-    }
-
-    if (*(tmpPtr1 - 1) == '/' && len > 1) {
-        *(tmpPtr1 - 1) = '\0';
-        if (strlen(iRODSPath) >= MAX_PATH_ALLOWED-1) {
-	        return (USER_PATH_EXCEEDS_MAX);
-        }
-        return (0);
-    }
-
-    if (strlen(iRODSPath) >= MAX_PATH_ALLOWED-1) {
-       return (USER_PATH_EXCEEDS_MAX);
-    }
-
-    return (0);
-}
-
-static int
 _getBufferPath(const char *path, char *bufferPath) {
     if (path == NULL || bufferPath == NULL) {
         rodsLog (LOG_ERROR, "_getBufferPath: given path or bufferPath is NULL");
@@ -423,97 +324,16 @@ static int
 _prepareLazyUploadBufferDir(const char *path) {
     int status;
 
-    status = _makeDirs(path);
+    status = makeDirs(path);
 
     return status; 
-}
-
-static int
-_prepareDir(const char *path) {
-    int status;
-    char dir[MAX_NAME_LEN], file[MAX_NAME_LEN];
-    
-    if (path == NULL) {
-        rodsLog (LOG_ERROR, "_prepareDir: input path is NULL");
-        return (SYS_INTERNAL_NULL_INPUT_ERR);
-    }
-
-    splitPathByKey ((char *) path, dir, file, '/');
-    
-    // make dirs
-    status = _makeDirs(dir);
-
-    return status;
-}
-
-static int
-_getParentDir(const char *path, char *parent) {
-    char dir[MAX_NAME_LEN], file[MAX_NAME_LEN];
-
-    if (path == NULL) {
-        rodsLog (LOG_ERROR, "_getParentDir: input path is NULL");
-        return (SYS_INTERNAL_NULL_INPUT_ERR);
-    }
-
-    splitPathByKey ((char*) path, dir, file, '/');
-    
-    rstrcpy (parent, dir, MAX_NAME_LEN);
-
-    return (0);
-}
-
-static int
-_isDirectory(const char *path) {
-    struct stat stbuf;
-
-    if (path == NULL) {
-        rodsLog (LOG_ERROR, "_isDirectory: input path is NULL");
-        return (SYS_INTERNAL_NULL_INPUT_ERR);
-    }
-
-    if ((stat(path, &stbuf) == 0) && (S_ISDIR(stbuf.st_mode))) {
-        return (0);
-    }
-
-    return (-1);
-}
-
-static int
-_makeDirs(const char *path) {
-    char dir[MAX_NAME_LEN];
-    char file[MAX_NAME_LEN];
-    int status;
-
-    rodsLog (LOG_DEBUG, "_makeDirs: %s", path);
-
-    if (path == NULL) {
-        rodsLog (LOG_ERROR, "_makeDirs: input path is NULL");
-        return (SYS_INTERNAL_NULL_INPUT_ERR);
-    }
-
-    splitPathByKey ((char *) path, dir, file, '/');
-    if(_isDirectory(dir) < 0) {
-        // parent not exist
-        status = _makeDirs(dir);
-
-        if(status < 0) {
-            return (status);
-        }
-    }
-    
-    // parent now exist
-    status = mkdir(path, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
-    if(status == -EEXIST) {
-        return (0);
-    }
-    return status;
 }
 
 static int
 _removeAllBufferredFiles() {
     int status;
     
-    if((status = _emptyDir(LazyUploadConfig.bufferPath)) < 0) {
+    if((status = emptyDir(LazyUploadConfig.bufferPath)) < 0) {
         return status;
     }
 
@@ -536,87 +356,6 @@ _removeBufferredFile(const char *path) {
 }
 
 static int
-_emptyDir(const char *path) {
-    DIR *dir = opendir(path);
-    char filepath[MAX_NAME_LEN];
-    struct dirent *entry;
-    struct stat statbuf;
-    int status;
-    int statusFailed = 0;
-
-    if (dir != NULL) {
-        while ((entry = readdir(dir)) != NULL) {
-            if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) {
-                continue;
-            }
-
-            snprintf(filepath, MAX_NAME_LEN, "%s/%s", path, entry->d_name);
-            rodsLog (LOG_DEBUG, "_emptyDir: removing : %s", dir);
-
-            if (!stat(filepath, &statbuf)) {
-                // has entry
-                if (S_ISDIR(statbuf.st_mode)) {
-                    // directory
-                    status = _removeDir(filepath);
-                    if(status < 0) {
-                        statusFailed = status;
-                    }
-                } else {
-                    // file
-                    status = unlink(filepath);
-                    if(status < 0) {
-                        statusFailed = status;
-                    }
-                }
-            }
-        }
-        closedir(dir);
-    }
-
-    return statusFailed;
-}
-
-static int
-_removeDir(const char *path) {
-    DIR *dir = opendir(path);
-    char filepath[MAX_NAME_LEN];
-    struct dirent *entry;
-    struct stat statbuf;
-    int status;
-    int statusFailed = 0;
-
-    if (dir != NULL) {
-        while ((entry = readdir(dir)) != NULL) {
-            if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) {
-                continue;
-            }
-
-            snprintf(filepath, MAX_NAME_LEN, "%s/%s", path, entry->d_name);
-            rodsLog (LOG_DEBUG, "_removeDir: removing : %s", dir);
-
-            if (!stat(filepath, &statbuf)) {
-                // has entry
-                if (S_ISDIR(statbuf.st_mode)) {
-                    // directory
-                    status = _removeDir(filepath);
-                    if(status < 0) {
-                        statusFailed = status;
-                    }
-                } else {
-                    // file
-                    status = unlink(filepath);
-                    if(status < 0) {
-                        statusFailed = status;
-                    }
-                }
-            }
-        }
-        closedir(dir);
-    }
-
-    if(statusFailed == 0) {
-        statusFailed = rmdir(path);
-    }
-
-    return statusFailed;
+_getiRODSPath(const char *path, char *iRODSPath) {
+    return getiRODSPath(path, iRODSPath, LazyUploadRodsEnv->rodsHome, LazyUploadRodsEnv->rodsCwd);
 }

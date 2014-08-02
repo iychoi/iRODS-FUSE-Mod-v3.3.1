@@ -850,16 +850,12 @@ struct fuse_file_info *fi)
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
     // check local cache
     rodsLog (LOG_DEBUG, "irodsRead: read %s, o:%ld, l:%ld\n", path, offset, size);
-    if (isPreloadEnabled() == 0 && checkPreloadFileHandleTable (path) >= 0) {
-        // for fast file read
-        status = readPreloadedFile (path, buf, size, offset);
-        return status;
-    }
-
-    if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
-        // if the file is preloaded, start file read
-        status = readPreloadedFile (path, buf, size, offset);
-        return status;
+    if (isPreloadEnabled() == 0) {
+        descInx = openPreloadedFile (path);
+        if (descInx > 0) {
+            status = readPreloadedFile (descInx, buf, size, offset);
+            return status;
+        }
     }
 
     if (isLazyUploadEnabled() == 0 && isLazyUploadBufferredFile (path) >= 0) {
