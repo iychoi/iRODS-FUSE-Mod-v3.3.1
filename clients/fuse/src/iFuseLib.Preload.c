@@ -348,23 +348,30 @@ openPreloadedFile (const char *path) {
             rodsLog (LOG_DEBUG, "openPreloadedFile: file is already opened - %s", iRODSPath);
         } else {
             // reuse handleinfo
-            desc = open (preloadCachePath, O_RDWR);
-            preloadFileHandleInfo->handle = desc;
-            rodsLog (LOG_DEBUG, "openPreloadedFile: opens a file handle - %s", iRODSPath);
+            if(_hasCache(iRODSPath) >= 0) {
+                desc = open (preloadCachePath, O_RDONLY);
+
+                if(desc > 0) {
+                    preloadFileHandleInfo->handle = desc;
+                    rodsLog (LOG_DEBUG, "openPreloadedFile: opens a file handle - %s", iRODSPath);
+                }
+            }
         }
     } else {
         // if preloaded cache file is not opened
         // open new
-        desc = open (preloadCachePath, O_RDWR);
-        rodsLog (LOG_DEBUG, "openPreloadedFile: read from preloaded cache path - %s", iRODSPath);
+        if(_hasCache(iRODSPath) >= 0) {
+            desc = open (preloadCachePath, O_RDONLY);
+            rodsLog (LOG_DEBUG, "openPreloadedFile: open a preloaded cache path - %s", iRODSPath);
 
-        if(desc > 0) {
-            preloadFileHandleInfo = (preloadFileHandleInfo_t *)malloc(sizeof(preloadFileHandleInfo_t));
-            preloadFileHandleInfo->path = strdup(iRODSPath);
-            preloadFileHandleInfo->handle = desc;
-            INIT_STRUCT_LOCK((*preloadFileHandleInfo));
+            if(desc > 0) {
+                preloadFileHandleInfo = (preloadFileHandleInfo_t *)malloc(sizeof(preloadFileHandleInfo_t));
+                preloadFileHandleInfo->path = strdup(iRODSPath);
+                preloadFileHandleInfo->handle = desc;
+                INIT_STRUCT_LOCK((*preloadFileHandleInfo));
 
-            insertIntoHashTable(PreloadFileHandleTable, iRODSPath, preloadFileHandleInfo);
+                insertIntoHashTable(PreloadFileHandleTable, iRODSPath, preloadFileHandleInfo);
+            }
         }
     }
 
@@ -377,6 +384,7 @@ int
 readPreloadedFile (int fileDesc, char *buf, size_t size, off_t offset) {
     int status;
     off_t seek_status;
+
     LOCK(PreloadLock);
 
     seek_status = lseek (fileDesc, offset, SEEK_SET);
@@ -433,6 +441,36 @@ closePreloadedFile (const char *path) {
     UNLOCK(PreloadLock);
 
     return status;
+}
+
+int
+moveToPreloadedDir (const char *path, const char *iRODSPath) {
+    int status;
+    char preloadCachePath[MAX_NAME_LEN];
+
+    if (path == NULL || iRODSPath == NULL) {
+        rodsLog (LOG_ERROR, "moveToPreloadedDir: input path or iRODSPath is NULL");
+        return (SYS_INTERNAL_NULL_INPUT_ERR);
+    }
+
+    status = _getCachePath(iRODSPath, preloadCachePath);
+    if(status < 0) {
+        rodsLogError(LOG_ERROR, status, "moveToPreloadedDir: _getCachePath error.");
+        rodsLog (LOG_ERROR, "moveToPreloadedDir: failed to get cache path - %s", path);
+        return status;
+    }
+
+    // make dir
+    prepareDir(preloadCachePath);
+    
+    // move the file
+    status = rename(path, preloadCachePath);
+    if(status < 0) {
+        rodsLogError(LOG_ERROR, status, "moveToPreloadedDir: rename error.");
+        return status;
+    }
+
+    return (0);
 }
 
 /**************************************************************************

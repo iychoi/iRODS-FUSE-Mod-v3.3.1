@@ -150,7 +150,7 @@ typedef struct LazyUploadConfig {
 
 #define PRELOAD_FILES_IN_DOWNLOADING_EXT    ".part"
 #define NUM_PRELOAD_THREAD_HASH_SLOT	201
-#define NUM_LAZYUPLOAD_FILEHANDLE_HASH_SLOT   201
+#define NUM_LAZYUPLOAD_FILE_HASH_SLOT   201
 
 typedef struct PreloadThreadInfo {
 #ifdef USE_BOOST
@@ -170,15 +170,16 @@ typedef struct PreloadThreadInfo {
 #define PRELOAD_THREAD_RUNNING    1
 #define PRELOAD_THREAD_IDLE    0
 
-typedef struct LazyUploadFileHandleInfo {
+typedef struct LazyUploadFileInfo {
     char *path;
+    int accmode;
     int handle;
 #ifdef USE_BOOST
     boost::mutex* mutex;
 #else
     pthread_mutex_t lock;
 #endif
-} lazyUploadFileHandleInfo_t;
+} lazyUploadFileInfo_t;
 
 typedef struct PreloadThreadData {
     char *path;
@@ -334,19 +335,25 @@ readPreloadedFile (int fileDesc, char *buf, size_t size, off_t offset);
 int
 closePreloadedFile (const char *path);
 int
+moveToPreloadedDir (const char *path, const char *iRODSPath);
+int
 initLazyUpload (lazyUploadConfig_t *lazyUploadConfig, rodsEnv *myRodsEnv, rodsArguments_t *myRodsArgs);
 int
 uninitLazyUpload (lazyUploadConfig_t *lazyUploadConfig);
 int
-isLazyUploadEnabled();
+isLazyUploadEnabled ();
 int
-prepareLazyUploadBufferredFile(const char *path);
+isLazyUploadBufferred (const char *path);
+int
+mknodLazyUploadBufferredFile (const char *path);
+int
+openLazyUploadBufferredFile (const char *path, int accmode);
+int
+writeLazyUploadBufferredFile (const char *path, const char *buf, size_t size, off_t offset);
+int
+closeLazyUploadBufferredFile (const char *path);
 int
 uploadFile (const char *path);
-int
-isLazyUploadBufferredFile (const char *path);
-int
-findLazyUploadBufferredFilePath (const char *path, char *lazyUploadPath);
 #ifdef  __cplusplus
 }
 #endif

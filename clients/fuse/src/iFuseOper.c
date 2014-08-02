@@ -279,10 +279,10 @@ irodsMknod (const char *path, mode_t mode, dev_t rdev)
     // lazy upload starts
     if (isLazyUploadEnabled() == 0) {
         rodsLog (LOG_DEBUG, "irodsMknod: create %s", path);
-        status = prepareLazyUploadBufferredFile(path);
+        status = mknodLazyUploadBufferredFile(path);
 
         if (status < 0) {
-            rodsLogError (LOG_ERROR, status, "irodsMknod: prepareLazyUploadBufferredFile of %s error", path);
+            rodsLogError (LOG_ERROR, status, "irodsMknod: mknodLazyUploadBufferredFile of %s error", path);
             return 0;
         }
     }
@@ -769,9 +769,16 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
 
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
     if ((flags & O_ACCMODE) == O_WRONLY || (flags & O_ACCMODE) == O_RDWR) {
-        // invalidate cache as it will be overwritten
         if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
+            // invalidate preload cache as it will be overwritten
             invalidatePreloadedCache(path);
+        }
+
+        if ((flags & O_ACCMODE) == O_WRONLY) {
+            // lazy-upload
+            if (openLazyUploadBufferredFile(path, flags) == 0) {
+                rodsLog (LOG_DEBUG, "irodsOpen: open with lazy-upload %s", path);
+            }
         }
     } else if ((flags & O_ACCMODE) == O_RDONLY && stbuf.st_size > MAX_READ_CACHE_SIZE) {
         if (isPreloadEnabled() == 0) {
@@ -781,7 +788,7 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
                 rodsLog (LOG_DEBUG, "irodsOpen: preload %s", path);
             }
         }
-    }  
+    }
 #endif
 
     if ((flags & (O_WRONLY | O_RDWR)) != 0 || status < 0 || stbuf.st_size > MAX_READ_CACHE_SIZE) {
@@ -858,20 +865,6 @@ struct fuse_file_info *fi)
         }
     }
 
-    if (isLazyUploadEnabled() == 0 && isLazyUploadBufferredFile (path) >= 0) {
-        char lazyUploadBufferredFilePath[MAX_NAME_LEN];
-        if (findLazyUploadBufferredFilePath (path, lazyUploadBufferredFilePath) >= 0) {
-            rodsLog (LOG_DEBUG, "irodsRead: read from the bufferred lazy upload file (%s)\n", lazyUploadBufferredFilePath);
-
-            // read from cache
-            int desc = open (lazyUploadBufferredFilePath, O_RDWR);
-            lseek (desc, offset, SEEK_SET);
-            status = read (desc, buf, size);
-            close (desc);
-            return status;
-        }
-    }
-
     rodsLog (LOG_DEBUG, "irodsRead: read from irods\n");
 #endif
 
@@ -897,18 +890,9 @@ struct fuse_file_info *fi)
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
     // check local cache
     rodsLog (LOG_DEBUG, "irodsWrite: write %s, o:%ld, l:%ld\n", path, offset, size);
-    if (isLazyUploadEnabled() == 0 && isLazyUploadBufferredFile (path) >= 0) {
-        char lazyUploadBufferredFilePath[MAX_NAME_LEN];
-        if (findLazyUploadBufferredFilePath (path, lazyUploadBufferredFilePath) >= 0) {
-            rodsLog (LOG_DEBUG, "irodsWrite: write to the bufferred lazy upload file (%s)\n", lazyUploadBufferredFilePath);
-
-            // write to the buffer
-            int desc = open (lazyUploadBufferredFilePath, O_RDWR);
-            lseek (desc, offset, SEEK_SET);
-            status = write (desc, buf, size);
-            close (desc);
-            return status;
-        }
+    if (isLazyUploadEnabled() == 0 && isLazyUploadBufferred (path) >= 0) {
+        status = writeLazyUploadBufferredFile (path, buf, size, offset);
+        return status;
     }
 #endif
 
@@ -956,19 +940,6 @@ irodsRelease (const char *path, struct fuse_file_info *fi)
 
     rodsLog (LOG_DEBUG, "irodsRelease: %s", path);
 
-#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
-    // check local cache
-    if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
-        rodsLog (LOG_DEBUG, "irodsRelease: %s", path);
-        closePreloadedFile (path);
-    }
-
-    if (isLazyUploadEnabled() == 0 && isLazyUploadBufferredFile (path) >= 0) {
-        rodsLog (LOG_DEBUG, "irodsRelease: %s", path);
-        uploadFile(path);
-    }
-#endif
-
     descInx = fi->fh;
 
     /* if (checkFuseDesc (descInx) < 0) {
@@ -976,6 +947,20 @@ irodsRelease (const char *path, struct fuse_file_info *fi)
     } */
 
     status = ifuseClose (&IFuseDesc[descInx]);
+
+#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
+    // check local cache
+    if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
+        rodsLog (LOG_DEBUG, "irodsRelease: %s", path);
+        closePreloadedFile (path);
+    }
+
+    if (isLazyUploadEnabled() == 0 && isLazyUploadBufferred (path) >= 0) {
+        rodsLog (LOG_DEBUG, "irodsRelease: %s", path);
+        closeLazyUploadBufferredFile (path);
+        uploadFile(path);
+    }
+#endif
 
     if (status < 0) {
         if ((myError = getErrno (status)) > 0) {
