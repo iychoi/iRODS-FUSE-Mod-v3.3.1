@@ -992,6 +992,11 @@ irodsRelease (const char *path, struct fuse_file_info *fi)
         rodsLog (LOG_DEBUG, "irodsRelease: %s", path);
         closeLazyUploadBufferredFile (path);
         uploadFile(path);
+
+#ifdef CACHE_FUSE_PATH
+        // clear path
+        clearPathFromCache((char *)path);
+#endif
     }
 #endif
 
