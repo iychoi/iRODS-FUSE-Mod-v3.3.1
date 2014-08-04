@@ -367,14 +367,6 @@ irodsUnlink (const char *path)
 #ifdef CACHE_FUSE_PATH
 	pathNotExist ((char *) path);
 #endif
-
-#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
-    // remove preloaded cache
-    if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
-        invalidatePreloadedCache(path);
-    }
-#endif
-
 	status = 0;
     } else {
 	if (isReadMsgError (status)) {
@@ -390,6 +382,13 @@ irodsUnlink (const char *path)
     unuseIFuseConn (iFuseConn);
 
     clearKeyVal (&dataObjInp.condInput);
+
+#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
+    // remove preloaded cache
+    if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
+        invalidatePreloadedCache(path);
+    }
+#endif
 
     return (status);
 }
@@ -423,12 +422,6 @@ irodsRmdir (const char *path)
         pathNotExist ((char *) path);
 #endif
 
-#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
-        // remove preloaded cache
-        if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
-            invalidatePreloadedCache(path);
-        }
-#endif
         status = 0;
     } else {
 		rodsLogError (LOG_ERROR, status,
@@ -439,6 +432,13 @@ irodsRmdir (const char *path)
     unuseIFuseConn (iFuseConn);
 
     clearKeyVal (&collInp.condInput);
+
+#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
+    // remove preloaded cache
+    if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
+        invalidatePreloadedCache(path);
+    }
+#endif
 
     return (status);
 }
@@ -641,6 +641,13 @@ irodsTruncate (const char *path, off_t size)
 					updatePathCacheStatFromFileCache (tmpPathCache);
 					UNLOCK_STRUCT(*(tmpPathCache->fileCache));
 					UNLOCK_STRUCT(*tmpPathCache);
+
+#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
+                    // truncate
+                    if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
+                        status = truncatePreloadedCache (path, size);
+                    }
+#endif
 					return (0);
 				}
 			}
@@ -670,14 +677,6 @@ irodsTruncate (const char *path, off_t size)
             tmpPathCache->stbuf.st_size = size;
         }
         UNLOCK_STRUCT(*tmpPathCache);
-
-#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
-        // truncate
-        if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
-            status = truncatePreloadedCache (path, size);
-        }
-#endif
-
         status = 0;
     } else {
 		rodsLogError (LOG_ERROR, status,
@@ -685,6 +684,13 @@ irodsTruncate (const char *path, off_t size)
 		status = -ENOENT;
     }
     unuseIFuseConn (iFuseConn);
+
+#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
+    // truncate
+    if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
+        status = truncatePreloadedCache (path, size);
+    }
+#endif
 
     return (status);
 }
@@ -738,6 +744,30 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
 				}
 				UNLOCK_STRUCT(*(tmpPathCache->fileCache));
 				UNLOCK_STRUCT(*tmpPathCache);
+
+#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
+                if ((flags & O_ACCMODE) == O_WRONLY || (flags & O_ACCMODE) == O_RDWR) {
+                    if (isPreloadEnabled() == 0 && isPreloaded (path) >= 0) {
+                        // invalidate preload cache as it will be overwritten
+                        invalidatePreloadedCache(path);
+                    }
+
+                    if ((flags & O_ACCMODE) == O_WRONLY) {
+                        // lazy-upload
+                        if (openLazyUploadBufferredFile(path, flags) > 0) {
+                            rodsLog (LOG_DEBUG, "irodsOpen: open with lazy-upload %s", path);
+                        }
+                    }
+                } else if ((flags & O_ACCMODE) == O_RDONLY && stbuf.st_size > MAX_READ_CACHE_SIZE) {
+                    if (isPreloadEnabled() == 0) {
+                        // preload irods file
+                        // this may fail if background tasks are already running too many
+                        if (preloadFile(path, &stbuf) == 0) {
+                            rodsLog (LOG_DEBUG, "irodsOpen: preload %s", path);
+                        }
+                    }
+                }
+#endif
 				return (0);
 			}
 			UNLOCK_STRUCT(*(tmpPathCache->fileCache));
