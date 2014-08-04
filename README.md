@@ -1,14 +1,14 @@
 iRODS-FUSE-Mod
 ==============
 
-Modified version of iRODS-FUSE client that supports file preload and lazy upload to improve I/O performance
+iRODS-FUSE-Mod is a modified version of iRODS-FUSE (irodsFs) to provide preload and lazy-upload for better performance.
 
 Overview
 --------
 
-Original read performance of iRODS FUSE client is slower than "iget" and "iput" command-line tools. This is because "iget" and "iput" uses multi-threaded parallel access to remote data files and uses bigger chunk size per request while "iRODS FUSE client" uses single thread and small chunk size. Hence "iget" program utilizes network bandwidth more efficiently.
+Original read performance of iRODS FUSE (irodsFs) is slower than "iget" and "iput" command-line tools when we try to read and write large data files stored on remote iRODS servers. This is because "iget" and "iput" uses multi-threaded parallel accesses to remote data files and uses bigger chunk size per request while iRODS FUSE (irodsFs) uses a single thread and small chunk size.
 
-In this project, file operations will be improved by using the same techniques as "iget" and "iput". While reading a big remote file, the modified iRODS FUSE will download the whole file to local disk in background. Hence, subsequent read operations will be benefitted by local cache. While writing a big file, the modified iRODS FUSE will save the file content to local disk first and commit (upload) the content when the file handle is closed.
+In this modification, file read and write operations are improved by using the same techniques as "iget" and "iput". While reading a big remote file, the modified iRODS FUSE will download the whole file to local disk in a background. Hence, subsequent file read will be boosted. While writing a big file, the modified iRODS FUSE will store the file content written to the local disk and upload the content in the future when the file is closed.
 
 FUSE Configuration Options
 --------------------------
@@ -46,3 +46,8 @@ File Write Performance
 
 - to be filled
 
+
+Debug Mode
+--------------
+
+To see debug messages that iRODS FUSE (irodsFs) prints out, edit "~/.irods/.irodsEnv" file and add "irodsLogLevel" parameter. 1 means "nothing" and 9 means "many".
