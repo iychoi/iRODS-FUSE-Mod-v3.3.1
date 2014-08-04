@@ -757,7 +757,7 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
 
                     if ((flags & O_ACCMODE) == O_WRONLY) {
                         // lazy-upload
-                        if (openLazyUploadBufferredFile(path, flags) > 0) {
+                        if (isLazyUploadEnabled() == 0 && openLazyUploadBufferredFile(path, flags) > 0) {
                             rodsLog (LOG_DEBUG, "irodsOpen: open with lazy-upload %s", path);
                         }
                     }
@@ -809,7 +809,7 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
 
         if ((flags & O_ACCMODE) == O_WRONLY) {
             // lazy-upload
-            if (openLazyUploadBufferredFile(path, flags) > 0) {
+            if (isLazyUploadEnabled() == 0 && openLazyUploadBufferredFile(path, flags) > 0) {
                 rodsLog (LOG_DEBUG, "irodsOpen: open with lazy-upload %s", path);
             }
         }
