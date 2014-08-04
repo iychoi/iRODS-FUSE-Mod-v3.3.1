@@ -310,6 +310,7 @@ closeLazyUploadBufferredFile (const char *path) {
     if(lazyUploadFileInfo != NULL) {
         // has lazy-upload file handle opened
         if(lazyUploadFileInfo->handle > 0) {
+            fsync(lazyUploadFileInfo->handle);
             close(lazyUploadFileInfo->handle);
             lazyUploadFileInfo->handle = -1;
             rodsLog (LOG_DEBUG, "closeLazyUploadBufferredFile: close lazy-upload bufferred file handle - %s", iRODSPath);
