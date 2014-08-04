@@ -101,6 +101,7 @@ int
 mknodLazyUploadBufferredFile(const char *path) {
     int status;
     lazyUploadFileInfo_t *lazyUploadFileInfo = NULL;
+    lazyUploadFileInfo_t *tmpLazyUploadFileInfo = NULL;
     char iRODSPath[MAX_NAME_LEN];
     char bufferPath[MAX_NAME_LEN];
 
@@ -136,7 +137,10 @@ mknodLazyUploadBufferredFile(const char *path) {
         }
 
         // remove from hash table
-        deleteFromHashTable(LazyUploadFileTable, iRODSPath);
+        tmpLazyUploadFileInfo = (lazyUploadFileInfo_t *)deleteFromHashTable(LazyUploadFileTable, iRODSPath);
+        if(tmpLazyUploadFileInfo != NULL) {
+            free(tmpLazyUploadFileInfo);
+        }
 
         // remove file
         status = unlink(bufferPath);
@@ -291,6 +295,7 @@ closeLazyUploadBufferredFile (const char *path) {
     int status;
     char iRODSPath[MAX_NAME_LEN];
     lazyUploadFileInfo_t *lazyUploadFileInfo = NULL;
+    lazyUploadFileInfo_t *tmpLazyUploadFileInfo = NULL;
 
     status = _getiRODSPath(path, iRODSPath);
     if(status < 0) {
@@ -316,7 +321,10 @@ closeLazyUploadBufferredFile (const char *path) {
         }
     
         // remove from hash table
-        deleteFromHashTable(LazyUploadFileTable, iRODSPath);
+        tmpLazyUploadFileInfo = (lazyUploadFileInfo_t *)deleteFromHashTable(LazyUploadFileTable, iRODSPath);
+        if(tmpLazyUploadFileInfo != NULL) {
+            free(tmpLazyUploadFileInfo);
+        }
     }
     
     UNLOCK(LazyUploadLock);

@@ -12,6 +12,8 @@
 #include "restructs.h"
 #include "iFuseLib.Lock.h"
 
+pathCache_t NonExistPathCache;
+
 Hashtable *NonExistPathTable;
 Hashtable *PathArrayTable;
 int
@@ -119,7 +121,7 @@ int _updatePathCacheStatFromFileCache (pathCache_t *tmpPathCache)
 
 int _pathNotExist(char *path) {
 	_rmPathFromCache ((char *) path, PathArrayTable);
-	insertIntoHashTable(NonExistPathTable, (char *) path, NULL);
+	insertIntoHashTable(NonExistPathTable, (char *) path, &NonExistPathCache);
 	return 0;
 }
 

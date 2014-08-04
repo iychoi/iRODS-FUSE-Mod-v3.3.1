@@ -410,6 +410,7 @@ closePreloadedFile (const char *path) {
     int status;
     char iRODSPath[MAX_NAME_LEN];
     preloadFileHandleInfo_t *preloadFileHandleInfo = NULL;
+    preloadFileHandleInfo_t *tmpPreloadFileHandleInfo = NULL;
 
     status = _getiRODSPath(path, iRODSPath);
     if(status < 0) {
@@ -435,7 +436,10 @@ closePreloadedFile (const char *path) {
         }
     
         // remove from hash table
-        deleteFromHashTable(PreloadFileHandleTable, iRODSPath);
+        tmpPreloadFileHandleInfo = (preloadFileHandleInfo_t *)deleteFromHashTable(PreloadFileHandleTable, iRODSPath);
+        if(tmpPreloadFileHandleInfo != NULL) {
+            free(tmpPreloadFileHandleInfo);
+        }
     }
     
     UNLOCK(PreloadLock);
@@ -480,6 +484,8 @@ static void *_preloadThread(void *arg) {
     int status;
     preloadThreadData_t *threadData = (preloadThreadData_t *)arg;
     preloadThreadInfo_t *threadInfo = NULL;
+    preloadThreadInfo_t *tmpPreloadThreadInfo;
+
     if(threadData == NULL) {
         rodsLog (LOG_ERROR, "_preloadThread: given thread argument is null");
         pthread_exit(NULL);
@@ -512,7 +518,10 @@ static void *_preloadThread(void *arg) {
     free(threadData);
 
     // remove from hash table
-    deleteFromHashTable(PreloadThreadTable, threadInfo->path);
+    tmpPreloadThreadInfo = (preloadThreadInfo_t *)deleteFromHashTable(PreloadThreadTable, threadInfo->path);
+    if(tmpPreloadThreadInfo != NULL) {
+        free(tmpPreloadThreadInfo);
+    }
 
     UNLOCK(PreloadLock);
 
