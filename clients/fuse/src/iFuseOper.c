@@ -378,6 +378,9 @@ irodsUnlink (const char *path)
               "irodsUnlink: rcDataObjUnlink of %s error", path);
             status = -ENOENT;
 	}
+#ifdef CACHE_FUSE_PATH
+	pathNotExist ((char *) path);
+#endif
     } 
     unuseIFuseConn (iFuseConn);
 
