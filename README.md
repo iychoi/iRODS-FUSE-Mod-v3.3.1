@@ -35,19 +35,35 @@ File Read Performance
 
 File Size | iRODS-FUSE (Unmodified) | iRODS-FUSE-Mod
 --- | --- | ---
-10MB | 0.7 seconds | 0.3 seconds
-50MB | 1.7 seconds | 1.3 seconds
-100MB | 3.3 seconds | 2.1 seconds
-500MB | 17 seconds | 7.4 seconds
-1GB | 34.7 seconds | 14.1 seconds
-2GB | 71.0 seconds | 34.5 seconds
+10MB | 1.1 seconds | 1.2 seconds
+50MB | 4.7 seconds | 1.7 seconds
+100MB | 8.0 seconds | 2.5 seconds
+500MB | 44.6 seconds | 7.7 seconds
+1GB | 83.8 seconds | 14.6 seconds
+2GB | 166.2 seconds | 28.6 seconds
 
 File Write Performance
 
-- to be filled
-
+File Size | iRODS-FUSE (Unmodified) | iRODS-FUSE-Mod
+--- | --- | ---
+10MB |
+50MB |
+100MB |
+500MB |
+1GB |
+2GB |
 
 Debug Mode
---------------
+----------
 
 To see debug messages that iRODS FUSE (irodsFs) prints out, edit "~/.irods/.irodsEnv" file and add "irodsLogLevel" parameter. 1 means "nothing" and 9 means "many".
+
+
+Example
+-------
+
+To activate preload and lazy-upload feature with default setting, simply type
+
+```
+irodsFs -o -f --preload --lazyupload /mnt/irods/
+```
