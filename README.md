@@ -1,7 +1,7 @@
 iRODS-FUSE-Mod
 ==============
 
-iRODS-FUSE-Mod is a modified version of iRODS-FUSE (irodsFs) to provide preload and lazy-upload for better performance.
+iRODS-FUSE-Mod is a modified version of iRODS-FUSE (irodsFs, release 3.3.1) to provide preload and lazy-upload for better performance.
 
 Overview
 --------
