@@ -38,8 +38,6 @@
 #include <boost/thread/thread.hpp>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/condition_variable.hpp>
-#else
-#include <pthread.h>
 #endif
 // =-=-=-=-=-=-=-
 

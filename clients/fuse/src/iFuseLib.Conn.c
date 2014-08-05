@@ -41,6 +41,7 @@ iFuseConn_t *getAndUseConnByPath (char *localPath, rodsEnv *myRodsEnv, int *stat
 	} else {
 		/* no match. just assign one */
 		*status = getAndUseIFuseConn (&iFuseConn, myRodsEnv);
+
 	}
 
     return iFuseConn;
