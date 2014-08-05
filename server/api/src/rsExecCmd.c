@@ -67,9 +67,12 @@ rsExecCmd (rsComm_t *rsComm, execCmd_t *execCmdInp, execCmdOut_t **execCmdOut)
     ruleExecInfo_t rei;
 
     initReiWithDataObjInp (&rei, rsComm, NULL);
-    char *args[1];
+    char *args[4];
     args[0] = execCmdInp->cmd;
-    status = applyRuleArg ("acPreProcForExecCmd", args, 1, &rei, NO_SAVE_REI);
+    args[1] = execCmdInp->cmdArgv == NULL? (char *) "" : execCmdInp->cmdArgv;
+    args[2] = execCmdInp->execAddr == NULL ? (char *) "" : execCmdInp->execAddr;
+    args[3] = execCmdInp->hintPath == NULL ? (char *) "" : execCmdInp->hintPath;
+    status = applyRuleArg ("acPreProcForExecCmd", args, 4, &rei, NO_SAVE_REI);
     if (status < 0) {
         rodsLog (LOG_ERROR,
                  "initAgent: acPreProcForExecCmd error, status = %d", status);
@@ -81,6 +84,16 @@ rsExecCmd (rsComm_t *rsComm, execCmd_t *execCmdInp, execCmdOut_t **execCmdOut)
 	rodsLog (LOG_ERROR,
 	  "rsExecCmd: bad cmd path %s", execCmdInp->cmd);
 	return (BAD_EXEC_CMD_PATH);
+    }
+
+    /* Also check for anonymous.  As an additional safety precaution,
+       by default, do not allow the anonymous user (if defined) to
+       execute commands via rcExecCmd.  If your site needs to allow
+       this for some particular feature, you can remove the
+       following check.
+    */
+    if (strncmp(ANONYMOUS_USER, rsComm->clientUser.userName,NAME_LEN) == 0) {
+        return(USER_NOT_ALLOWED_TO_EXEC_CMD);
     }
 
     memset (&addr, 0, sizeof (addr));
@@ -352,6 +365,7 @@ execCmd (execCmd_t *execCmdInp, int stdOutFd, int stdErrFd)
 
     snprintf (cmdPath, LONG_NAME_LEN, "%s/%s", cmdDir, execCmdInp->cmd); 
 
+    rodsLog(LOG_NOTICE, "execCmd:%s argv:%s", cmdPath, execCmdInp->cmdArgv);
     initCmdArg (av, execCmdInp->cmdArgv, cmdPath);
 
     closeAllL1desc (ThisComm);

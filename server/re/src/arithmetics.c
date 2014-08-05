@@ -169,7 +169,7 @@ Res* evaluateExpression3(Node *expr, int applyAll, int force, ruleExecInfo_t *re
         /* coercions are applied at application locations only */
         return res;
 }
-
+ExprType* isIterable(ExprType *type, int dynamictyping, Hashtable* var_type_table, Region *r);
 Res* processCoercion(Node *node, Res *res, ExprType *type, Hashtable *tvarEnv, rError_t *errmsg, Region *r) {
         char buf[ERR_MSG_LEN>1024?ERR_MSG_LEN:1024];
         char *buf2;
@@ -296,27 +296,13 @@ Res* processCoercion(Node *node, Res *res, ExprType *type, Hashtable *tvarEnv, r
                 case T_CONS:
                     /* we can ignore the not top level type constructor and leave type checking to when it is derefed */
                     switch(TYPE(res)) {
-                    	case T_PATH:
-                    		nres = res;
-                    		break;
                         case T_CONS:
                         	nres = res;
                         	break;
-                        case T_IRODS:
-                            if(strcmp(res->exprType->text, IntArray_MS_T) == 0 ||
-                               strcmp(res->exprType->text, StrArray_MS_T) == 0 ||
-                               strcmp(res->exprType->text, GenQueryOut_MS_T) == 0) {
+                        default:
+                            if(isIterable(res->exprType, 0, newHashTable2(10, r), r) != NULL) {
                             	nres = res;
                             }
-                            break;
-                        case T_TUPLE:
-                        	if(res->exprType->degree == 2 &&
-                        			getNodeType(res->exprType->subtrees[0]) == T_IRODS && strcmp(res->exprType->subtrees[0]->text, GenQueryInp_MS_T) == 0 &&
-                        			getNodeType(res->exprType->subtrees[1]) == T_IRODS && strcmp(res->exprType->subtrees[1]->text, GenQueryOut_MS_T) == 0) {
-                        		nres = res;
-                        	}
-                        	break;
-                        default:
                             break;
                     }
                     break;
@@ -518,20 +504,25 @@ Res* evaluateFunction3(Node *appRes, int applyAll, Node *node, Env *env, ruleExe
     fd = (FunctionDesc *)lookupFromEnv(ruleEngineConfig.extFuncDescIndex, fn);
 
     localTypingConstraints = newList(r);
-    char ioParam[MAX_FUNC_PARAMS];
+    int ioParam[MAX_FUNC_PARAMS];
     /* evaluation parameters and try to resolve remaining tvars with unification */
     for(i=0;i<n;i++) {
         switch(getIOType(nodeArgs[i])) {
             case IO_TYPE_INPUT | IO_TYPE_OUTPUT: /* input/output */
-                ioParam[i] = 'p';
-                args[i] = evaluateExpression3(appArgs[i], applyAll > 1 ? applyAll : 0, 0, rei, reiSaveFlag, env, errmsg, newRegion);
+                ioParam[i] = IO_TYPE_INPUT | IO_TYPE_OUTPUT;
+            	if(!isVariableNode(appArgs[i])) {
+            	    res = newErrorRes(r, RE_UNSUPPORTED_AST_NODE_TYPE);
+                    generateAndAddErrMsg("unsupported output parameter type", appArgs[i], RE_UNSUPPORTED_AST_NODE_TYPE, errmsg);
+		    RETURN;
+		}
+                args[i] = evaluateExpression3(appArgs[i], applyAll > 1 ? applyAll : 0, 1, rei, reiSaveFlag, env, errmsg, newRegion);
                 if(getNodeType(args[i])==N_ERROR) {
                     res = (Res *)args[i];
                     RETURN;
                 }
                 break;
             case IO_TYPE_INPUT: /* input */
-                ioParam[i] = 'i';
+                ioParam[i] = IO_TYPE_INPUT;
                 args[i] = appArgs[i];
                 break;
             case IO_TYPE_DYNAMIC: /* dynamic */
@@ -541,16 +532,16 @@ Res* evaluateFunction3(Node *appRes, int applyAll, Node *node, Env *env, ruleExe
 						res = args[i];
 						RETURN;
 					} else if(TYPE(args[i]) == T_UNSPECED) {
-						ioParam[i] = 'o';
+						ioParam[i] = IO_TYPE_OUTPUT;
 					} else {
-						ioParam[i] = 'p';
+						ioParam[i] = IO_TYPE_INPUT | IO_TYPE_OUTPUT;
 						if(getNodeType(args[i])==N_ERROR) {
 							res = (Res *)args[i];
 							RETURN;
 						}
 					}
             	} else {
-            		ioParam[i] = 'i';
+            		ioParam[i] = IO_TYPE_INPUT;
             		args[i] = evaluateExpression3(appArgs[i], applyAll > 1 ? applyAll : 0, 1, rei, reiSaveFlag, env, errmsg, newRegion);
 					if(getNodeType(args[i])==N_ERROR) {
 						res = (Res *)args[i];
@@ -559,15 +550,15 @@ Res* evaluateFunction3(Node *appRes, int applyAll, Node *node, Env *env, ruleExe
             	}
                 break;
             case IO_TYPE_OUTPUT: /* output */
-                ioParam[i] = 'o';
+                ioParam[i] = IO_TYPE_OUTPUT;
                 args[i] = newUnspecifiedRes(r);
                 break;
             case IO_TYPE_EXPRESSION: /* expression */
-                ioParam[i] = 'e';
+                ioParam[i] = IO_TYPE_EXPRESSION;
                 args[i] = appArgs[i];
                 break;
             case IO_TYPE_ACTIONS: /* actions */
-                ioParam[i] = 'a';
+                ioParam[i] = IO_TYPE_ACTIONS;
                 args[i] = appArgs[i];
                 break;
         }
@@ -605,7 +596,7 @@ Res* evaluateFunction3(Node *appRes, int applyAll, Node *node, Env *env, ruleExe
 		/* do the input value conversion */
 		ExprType **coercionTypes = coercionType->subtrees;
 		for(i=0;i<n;i++) {
-			if((ioParam[i] == 'i' || ioParam[i] == 'p') && (nodeArgs[i]->option & OPTION_COERCE) != 0) {
+			if(((ioParam[i] | IO_TYPE_INPUT) == IO_TYPE_INPUT) && (nodeArgs[i]->option & OPTION_COERCE) != 0) {
 				args[i] = processCoercion(nodeArgs[i], args[i], coercionTypes[i], env->current, errmsg, newRegion);
 				if(getNodeType(args[i])==N_ERROR) {
 					res = (Res *)args[i];
@@ -664,7 +655,7 @@ Res* evaluateFunction3(Node *appRes, int applyAll, Node *node, Env *env, ruleExe
     for(i=0;i<n;i++) {
         Res *resp = NULL;
 
-        if(ioParam[i] == 'o' || ioParam[i] == 'p') {
+        if((ioParam[i] & IO_TYPE_OUTPUT) == IO_TYPE_OUTPUT) {
             if((appArgs[i]->option & OPTION_COERCE) != 0) {
                 args[i] = processCoercion(nodeArgs[i], args[i], appArgs[i]->exprType, env->current, errmsg, newRegion);
             }
@@ -868,12 +859,11 @@ Res* execMicroService3 (char *msName, Res **args, unsigned int nargs, Node *node
             if(res != NULL) {
                 int ret =
                     convertResToMsParam(myArgv[i], res, errmsg);
-				myArgv[i]->label = fillInParamLabel && isVariableNode(node->subtrees[1]->subtrees[i]) ? strdup(node->subtrees[1]->subtrees[i]->text) : NULL;
                 if(ret!=0) {
-                    generateErrMsg("execMicroService3: error converting arguments to MsParam", NODE_EXPR_POS(node->subtrees[i]), node->subtrees[i]->base, errbuf);
+                    generateErrMsg("execMicroService3: error converting arguments to MsParam", NODE_EXPR_POS(node->subtrees[1]->subtrees[i]), node->subtrees[1]->subtrees[i]->base, errbuf);
                     addRErrorMsg(errmsg, ret, errbuf);
-                    int j = i;
-                    for(;j>=0;j--) {
+                    int j;
+                    for(j = i - 1;j>=0;j--) {
                         if(TYPE(args[j])!=T_IRODS) {
                             free(myArgv[j]->inOutStruct);
                             myArgv[j]->inOutStruct = NULL;
@@ -884,6 +874,7 @@ Res* execMicroService3 (char *msName, Res **args, unsigned int nargs, Node *node
                     }
                     return newErrorRes(r, ret);
                 }
+				myArgv[i]->label = fillInParamLabel && isVariableNode(node->subtrees[1]->subtrees[i]) ? strdup(node->subtrees[1]->subtrees[i]->text) : NULL;
             } else {
                 myArgv[i]->inOutStruct = NULL;
                 myArgv[i]->inpOutBuf = NULL;
@@ -1361,10 +1352,13 @@ Res* matchPattern(Node *pattern, Node *val, Env *env, ruleExecInfo_t *rei, int r
 	    	RE_ERROR2(TYPE(v) != T_STRING , "not a string.");
 		if(getNodeType(N_APP_ARG(pattern, 1)) == N_APPLICATION && N_APP_ARITY(N_APP_ARG(pattern, 1)) == 0) {
 			key = N_APP_FUNC(N_APP_ARG(pattern, 1))->text;
-		} else if (getNodeType(N_APP_ARG(pattern, 1)) == TK_STRING) {
-			key = N_APP_ARG(pattern, 1)->text;
 		} else {
-	    		RE_ERROR2(1, "malformatted key pattern.");
+			Res *res = evaluateExpression3(N_APP_ARG(pattern, 1), 0, 1, rei, reiSaveFlag, env, errmsg, r);
+			if (res->exprType != NULL && TYPE(res) == T_STRING) {
+				key = res->text;
+			} else {
+		    		RE_ERROR2(1, "malformatted key pattern.");
+			}
 		}
 		varName = N_APP_ARG(pattern, 0)->text;
 		if(getNodeType(N_APP_ARG(pattern, 0)) == TK_VAR && varName[0] == '*' && 
@@ -1447,19 +1441,19 @@ Res* matchPattern(Node *pattern, Node *val, Env *env, ruleExecInfo_t *rei, int r
 		return newIntRes(r, 0);
     case TK_BOOL:
     	RE_ERROR2(getNodeType(v) != N_VAL || TYPE(v) != T_BOOL, "pattern mismatch value is not a boolean.");
-    	res = evaluateExpression3(pattern, 0, 0, rei, reiSaveFlag, env, errmsg, r);
+    	res = evaluateExpression3(pattern, 0, 1, rei, reiSaveFlag, env, errmsg, r);
     	CASCADE_N_ERROR(res);
     	RE_ERROR2(RES_BOOL_VAL(res) != RES_BOOL_VAL(v) , "pattern mismatch boolean.");
 		return newIntRes(r, 0);
     case TK_INT:
     	RE_ERROR2(getNodeType(v) != N_VAL || (TYPE(v) != T_INT && TYPE(v) != T_DOUBLE), "pattern mismatch value is not an integer.");
-    	res = evaluateExpression3(pattern, 0, 0, rei, reiSaveFlag, env, errmsg, r);
+    	res = evaluateExpression3(pattern, 0, 1, rei, reiSaveFlag, env, errmsg, r);
     	CASCADE_N_ERROR(res);
     	RE_ERROR2(RES_INT_VAL(res) != (TYPE(v) == T_INT ? RES_INT_VAL(v) : RES_DOUBLE_VAL(v)) , "pattern mismatch integer.");
 		return newIntRes(r, 0);
     case TK_DOUBLE:
     	RE_ERROR2(getNodeType(v) != N_VAL || (TYPE(v) != T_DOUBLE && TYPE(v) != T_INT), "pattern mismatch value is not a double.");
-    	res = evaluateExpression3(pattern, 0, 0, rei, reiSaveFlag, env, errmsg, r);
+    	res = evaluateExpression3(pattern, 0, 1, rei, reiSaveFlag, env, errmsg, r);
     	CASCADE_N_ERROR(res);
     	RE_ERROR2(RES_DOUBLE_VAL(res) != (TYPE(v) == T_DOUBLE ? RES_DOUBLE_VAL(v) : RES_INT_VAL(v)), "pattern mismatch integer.");
 		return newIntRes(r, 0);

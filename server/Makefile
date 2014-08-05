@@ -97,7 +97,8 @@ SVR_DRIVERS_OBJS+=$(svrDriversObjDir)/hdfsFileDriver.o
 INCLUDES += -I$${HADOOP_HOME}/src/c++/libhdfs
 INCLUDES += -I$${JAVA_HOME}/include
 INCLUDES += -I$${JAVA_HOME}/include/linux
-LDFLAGS += -L$${HADOOP_HOME}/c++/Linux-amd64-64/lib -lhdfs
+#LDFLAGS += -L$${HADOOP_HOME}/c++/Linux-amd64-64/lib -lhdfs
+LDFLAGS += -L$${HADOOP_HOME}/c++/Linux-i386-32/lib -lhdfs
 endif
 
 ifdef DDN_WOS
@@ -108,6 +109,10 @@ endif
 
 ifdef PAM_AUTH_NO_EXTEND
 CFLAGS +=	-DPAM_AUTH_NO_EXTEND
+endif
+
+ifdef SHA256_FILE_HASH
+CFLAGS +=	-DSHA256_FILE_HASH
 endif
 
 ifdef HPSS
@@ -407,10 +412,14 @@ LDFLAGS +=	$(LDADD) $(LIBRARY)
 
 ifdef GSI_AUTH
 
+ifeq ($(OS_platform), osx_platform)
+GSI_LIB_DIR=lib
+else
 ifeq ($(ADDR_64BITS), 1)
 GSI_LIB_DIR=lib64
 else
 GSI_LIB_DIR=lib
+endif
 endif
 
 ifeq ($(GSI_INSTALL_TYPE),)

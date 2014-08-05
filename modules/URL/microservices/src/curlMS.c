@@ -17,8 +17,12 @@ extern "C" {
 #include <stdio.h>
 
 #include <curl/curl.h>
-#include <curl/types.h>
 #include <curl/easy.h>
+
+/* types.h is not included in newer versions of libcurl */ 
+#if LIBCURL_VERSION_NUM < 0x071503
+#include <curl/types.h>
+#endif
 
 #define MAX_DL_STR_LEN	1048576		// 1MB
 
@@ -667,7 +671,172 @@ int msiTwitterPost(msParam_t *twittername, msParam_t *twitterpass, msParam_t *me
 
 #endif
 
+#ifdef JSON
+#include "parser.h"
+json_t *parseMspForJson(msParam_t *inpParam) {
+    if (inpParam == NULL || inpParam->inOutStruct == NULL) {
+        return (NULL);
+    }
 
+    if (strcmp (inpParam->type, JSON_MS_T) != 0) {
+        rodsLog (LOG_ERROR,
+          "parseMspForJson: inpParam type %s is not JSON_MS_T",
+          inpParam->type);
+    }
+
+    return (json_t *)(inpParam->inOutStruct);
+}
+
+/* input string -> `JSON_PI` */
+Res *msiParseJSON(Node **subtrees, int n, Node *node, ruleExecInfo_t *rei, int reiSaveFlag, Env *env, rError_t *errmsg, Region *r) {
+
+	json_t *root;
+	json_error_t error;
+	char *text;
+
+	text = subtrees[0]->text;
+
+	root = json_loads(text, 0, &error);
+
+	if(root == NULL) {
+		char err[ERR_MSG_LEN];
+		snprintf(err, ERR_MSG_LEN, "error: on line %d: %s\n", error.line, error.text);
+	    	generateAndAddErrMsg(err, node, RE_JSON_ERROR, errmsg);
+    		return newErrorRes(r, RE_JSON_ERROR);
+	}
+	
+	return newUninterpretedRes(r, JSON_MS_T, root, NULL);
+}
+
+/* input `JSON_PI` -> integer */
+Res* msiFreeJSON(Node **subtrees, int n, Node *node, ruleExecInfo_t *rei, int reiSaveFlag, Env *env, rError_t *errmsg, Region *r) {
+	json_t *root;
+	
+	root = (json_t *) RES_UNINTER_STRUCT(subtrees[0]);
+
+	json_decref(root);
+
+	return newIntRes(r, 0);
+}
+
+/* input `JSON_PI` * input string -> `JSON_PI` */
+Res* msiJSONObjectGet(Node **subtrees, int n, Node *node, ruleExecInfo_t *rei, int reiSaveFlag, Env *env, rError_t *errmsg, Region *r) {
+	json_t *root, *val;
+	char *text;
+	
+	root = (json_t *) RES_UNINTER_STRUCT(subtrees[0]);
+	text = subtrees[1]->text;
+
+	val = json_object_get(root, text);
+
+	if(val == NULL) {
+		char err[ERR_MSG_LEN];
+		snprintf(err, ERR_MSG_LEN, "msiJSONObjectGet: cannot get value for key %s.", text);
+	    	generateAndAddErrMsg(err, node, RE_JSON_ERROR, errmsg);
+    		return newErrorRes(r, RE_JSON_ERROR);
+	}
+
+	return newUninterpretedRes(r, JSON_MS_T, val, NULL);
+}
+
+/* input `JSON_PI` -> integer */
+Res* msiJSONArraySize(Node **subtrees, int n, Node *node, ruleExecInfo_t *rei, int reiSaveFlag, Env *env, rError_t *errmsg, Region *r) {
+	json_t *root;
+	
+	root = (json_t *) RES_UNINTER_STRUCT(subtrees[0]);
+
+	unsigned int arraySize;
+	
+	arraySize = json_array_size(root);
+
+	return newIntRes(r, arraySize);
+}
+
+/* input `JSON_PI` * input integer -> `JSON_PI` */
+Res* msiJSONArrayGet(Node **subtrees, int n, Node *node, ruleExecInfo_t *rei, int reiSaveFlag, Env *env, rError_t *errmsg, Region *r) {
+	json_t *root, *val;
+	int index;
+	
+	root = (json_t *) RES_UNINTER_STRUCT(subtrees[0]);
+	index = RES_INT_VAL(subtrees[1]);
+
+	val = json_array_get(root, index);
+
+	if(val == NULL) {
+		char err[ERR_MSG_LEN];
+		snprintf(err, ERR_MSG_LEN, "msiJSONArrayGet: cannot get value for index %d.", index);
+	    	generateAndAddErrMsg(err, node, RE_JSON_ERROR, errmsg);
+    		return newErrorRes(r, RE_JSON_ERROR);
+	}
+
+	return newUninterpretedRes(r, JSON_MS_T, val, NULL);
+}
+
+/* input `JSON_PI` -> string */
+Res* msiJSONStringValue(Node **subtrees, int n, Node *node, ruleExecInfo_t *rei, int reiSaveFlag, Env *env, rError_t *errmsg, Region *r) {
+	json_t *root;
+	char *val;
+
+	root = (json_t *) RES_UNINTER_STRUCT(subtrees[0]);
+
+	val = (char *) json_string_value(root);
+
+	if(val == NULL) {
+		char err[ERR_MSG_LEN];
+		snprintf(err, ERR_MSG_LEN, "msiJSONStringValue: cannot get value.");
+	    	generateAndAddErrMsg(err, node, RE_JSON_ERROR, errmsg);
+    		return newErrorRes(r, RE_JSON_ERROR);
+	}
+
+	return newStringRes(r, val);
+}
+
+/* input `JSON_PI` -> integer */
+Res* msiJSONIntegerValue(Node **subtrees, int n, Node *node, ruleExecInfo_t *rei, int reiSaveFlag, Env *env, rError_t *errmsg, Region *r) {
+	json_t *root;
+	int val;
+
+	root = (json_t *) RES_UNINTER_STRUCT(subtrees[0]);
+
+	val = json_integer_value(root);
+
+	return newIntRes(r, val);
+}
+
+/* input `JSON_PI` -> integer */
+Res* msiJSONObjectKeys(Node **subtrees, int n, Node *node, ruleExecInfo_t *rei, int reiSaveFlag, Env *env, rError_t *errmsg, Region *r) {
+	json_t *root;
+	int s = 1024;
+	int i = 0;
+	char **arr = (char **) malloc(n * sizeof(char *));
+
+	root = (json_t *) RES_UNINTER_STRUCT(subtrees[0]);
+
+	const char *key;
+	json_t *value;
+
+	json_object_foreach(root, key, value) {
+    		/* block of code that uses key and value */
+		arr[i++] = (char *) key;
+		if(i == s) {
+			s *= 2;
+			arr = (char **) realloc(arr, s * sizeof(char *));
+		}
+	}
+
+	Res *res = newCollRes(i, newSimpType(T_STRING, r), r);
+
+	int c;
+        for(c = 0; c < i; c++) {
+		res->subtrees[c] = newStringRes(r, arr[c]);
+	}
+
+	free(arr);
+	return res;
+}
+
+
+#endif
 
 /**
  *

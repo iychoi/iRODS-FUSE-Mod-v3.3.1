@@ -22,7 +22,7 @@ use Cwd;
 use Cwd "abs_path";
 use Config;
 
-$version{"irodsctl.pl"} = "September 2012";
+$version{"irodsctl.pl"} = "February 2014";
 
 
 
@@ -267,7 +267,7 @@ if ($GLOBALREAUDITFLAG)         { $ENV{'GLOBALREAUDITFLAG'}   = $GLOBALREAUDITFL
 if ($GLOBALREDEBUGFLAG)         { $ENV{'GLOBALREDEBUGFLAG'}   = $GLOBALREDEBUGFLAG; }
 if ($DefFileMode)		{ $ENV{'DefFileMode'}         = $DefFileMode; }
 if ($DefDirMode)		{ $ENV{'DefDirMode'}          = $DefDirMode; }
-if ($LOGFILE_INT)		{ $ENV{'LOGFILE_INT'}          = $LOGFILE_INT; }
+if ($LOGFILE_INT)		{ $ENV{'logfileInt'}          = $LOGFILE_INT; }
 
 
 
@@ -743,9 +743,16 @@ sub doTest
 	my $verbosity = isPrintVerbose( );
 	setPrintVerbose( 1 );
 
+        # Before running the icommands tests, copy the example hello
+        # to the cmd directory (for an iexecmd test)
+        `cp $serverBinCmdExamplesDir/hello $serverBinCmdDir`;
+
 	# Test iCommands
 	printSubtitle( "Testing iCommands...\n" );
 	doTestIcommands( );
+
+        # And after, remove the example hello copied above
+        unlink ( "$serverBinCmdDir/hello" );
 
 	# Check if this host is ICAT-enabled.
 	# Note that the tests assume i-commands are in the path so we can too.

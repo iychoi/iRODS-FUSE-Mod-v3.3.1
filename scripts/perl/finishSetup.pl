@@ -31,7 +31,7 @@ use Cwd;
 use Cwd "abs_path";
 use Config;
 
-$version{"finishSetup.pl"} = "September 2012";
+$version{"finishSetup.pl"} = "February 2014";
 
 
 
@@ -2770,6 +2770,7 @@ sub Postgres_CreateDatabase()
 		my $tmpPassword = createTempFilePath( "create" );
 		printToFile( $tmpPassword, "$DATABASE_ADMIN_PASSWORD\n" );
 		chmod( 0600, $tmpPassword );
+		$ENV{"PGPASSWORD"} = $DATABASE_ADMIN_PASSWORD;
 		if ($DATABASE_HOST eq "localhost") {
 		    ($status,$output) = run( "$createdb $DB_NAME < $tmpPassword" );
 		}
@@ -2777,6 +2778,7 @@ sub Postgres_CreateDatabase()
 		    ($status,$output) = run( "$createdb -h $DATABASE_HOST $DB_NAME < $tmpPassword" );
 		}
 		unlink( $tmpPassword );
+		delete $ENV{"PGPASSWORD"};
 
 		if ( $status != 0 )
 		{
@@ -3008,7 +3010,7 @@ sub fixUsersOdbcIni() {
 			      $databaseLibDir, "libodbcpsql.so" ) );
 
 		if ( $DATABASE_ODBC_TYPE =~ /system/i ) {
-		    my $libPath2 = "/usr/lib/odbc/psqlodbca.so";
+		    my $libPath2 = findOdbcLib($DATABASE_HOME);
 		    if (! -e $libPath2) {
 			printStatus( "ODBC will fail, $libPath2 (driver) does not exist\n" );
 			printLog( "ODBC will fail, $libPath2 (driver) does not exist\n" );

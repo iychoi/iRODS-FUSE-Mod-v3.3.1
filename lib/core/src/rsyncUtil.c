@@ -181,7 +181,7 @@ dataObjInp_t *dataObjOprInp)
     } else if (strlen (srcPath->chksum) > 0) {
 	/* src has a checksum value */
         status = rcChksumLocFile (targPath->outPath, RSYNC_CHKSUM_KW,
-          &dataObjOprInp->condInput);
+          &dataObjOprInp->condInput, extractHashFunction3(myRodsArgs));
         if (status < 0) {
             rodsLogError (LOG_ERROR, status,
               "rsyncDataToFileUtil: rcChksumLocFile error for %s, status = %d",
@@ -196,7 +196,7 @@ dataObjInp_t *dataObjOprInp)
     } else { 
 	/* exist but no chksum */
         status = rcChksumLocFile (targPath->outPath, RSYNC_CHKSUM_KW,
-          &dataObjOprInp->condInput);
+          &dataObjOprInp->condInput, extractHashFunction3(myRodsArgs));
         if (status < 0) {
             rodsLogError (LOG_ERROR, status,
               "rsyncDataToFileUtil: rcChksumLocFile error for %s, status = %d",
@@ -302,7 +302,7 @@ dataObjInp_t *dataObjOprInp)
     } else if (strlen (targPath->chksum) > 0) {
 	/* src has a checksum value */
         status = rcChksumLocFile (srcPath->outPath, RSYNC_CHKSUM_KW,
-          &dataObjOprInp->condInput);
+          &dataObjOprInp->condInput, extractHashFunction3(myRodsArgs));
         if (status < 0) {
             rodsLogError (LOG_ERROR, status,
               "rsyncFileToDataUtil: rcChksumLocFile error for %s, status = %d",
@@ -321,7 +321,7 @@ dataObjInp_t *dataObjOprInp)
     } else { 
 	/* exist but no chksum */
         status = rcChksumLocFile (srcPath->outPath, RSYNC_CHKSUM_KW,
-          &dataObjOprInp->condInput);
+          &dataObjOprInp->condInput, extractHashFunction3(myRodsArgs));
         if (status < 0) {
             rodsLogError (LOG_ERROR, status,
               "rsyncFileToDataUtil: rcChksumLocFile error for %s, status = %d",
@@ -555,7 +555,7 @@ dataObjInp_t *dataObjOprInp)
                 rstrcpy (mySrcPath.dataId, collEnt.dataId, NAME_LEN);
             mySrcPath.size = collEnt.dataSize;
             mySrcPath.objMode = collEnt.dataMode;
-            rstrcpy (mySrcPath.chksum, collEnt.chksum, NAME_LEN);
+            rstrcpy (mySrcPath.chksum, collEnt.chksum, CHKSUM_LEN);
             mySrcPath.objState = EXIST_ST;
 
             getFileType (&myTargPath);
@@ -936,7 +936,7 @@ dataObjCopyInp_t *dataObjCopyInp)
             if (strlen (mySrcPath.dataId) == 0)
                 rstrcpy (mySrcPath.dataId, collEnt.dataId, NAME_LEN);
             mySrcPath.size = collEnt.dataSize;
-            rstrcpy (mySrcPath.chksum, collEnt.chksum, NAME_LEN);
+            rstrcpy (mySrcPath.chksum, collEnt.chksum, CHKSUM_LEN);
             mySrcPath.objState = EXIST_ST;
 
 #if 0

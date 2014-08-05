@@ -18,7 +18,7 @@
 
 use File::Spec;
 
-$version{"utils_paths.pl"} = "September 2011";
+$version{"utils_paths.pl"} = "February 2014";
 
 
 
@@ -33,6 +33,10 @@ $modulesDir       = File::Spec->catdir( $IRODS_HOME, "modules" );
 $icommandsBinDir  = File::Spec->catdir( $IRODS_HOME, "clients", "icommands", "bin" );
 $icommandsTestDir = File::Spec->catdir( $IRODS_HOME, "clients", "icommands", "test" );
 
+$serverBinDir     = File::Spec->catdir( $IRODS_HOME, "server",  "bin" );
+$serverBinCmdDir          = File::Spec->catdir( $IRODS_HOME, "server",  "bin", "cmd" );
+$serverBinCmdExamplesDir  = File::Spec->catdir( $IRODS_HOME, "server",  "bin",
+						"cmd", "examples");
 $serverBinDir     = File::Spec->catdir( $IRODS_HOME, "server",  "bin" );
 $serverSqlDir     = File::Spec->catdir( $IRODS_HOME, "server",  "icat", "src" );
 $serverAuditExtSql= File::Spec->catdir( $IRODS_HOME, "server",  "icat", "auditExtensions" );

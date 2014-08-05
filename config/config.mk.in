@@ -320,6 +320,22 @@ GSI_SSL=
 GSI_CRYPTO=
 endif
 
+# SHA-2 (SHA-256) File Hashes
+# Uncomment '#SHA256_FILE_HASH = 1' and select your preference for 
+# PREFER_SHA256_FILE_HASH':  0 means not preferred, 1 means preferred,
+# and 2 means required.  See http://irods.org/index.php/File_Hashes for more.
+#
+# Currrently, we do not recommend enabling this if you are using
+# Oracle as the ICAT DBMS as it can cause some segfaults due to some
+# library incompatibilities.  See the 'File Hashes' page mentioned
+# above for more on this.
+#SHA256_FILE_HASH = 1
+ifdef SHA256_FILE_HASH
+PREFER_SHA256_FILE_HASH = 1
+SHA256_LIB=crypto
+SHA256_INC=/usr/include/openssl
+endif
+
 # RBUDP_TRANSFER - specify whether RBUDP file transfer mechanism will be
 # supported (iget/iget -U)
 RBUDP_TRANSFER = 1

@@ -13,7 +13,6 @@
 
 **************************************************************************/
 
-
 #include "icatMidLevelRoutines.h"
 #include "icatLowLevel.h"
 #include "icatMidLevelHelpers.h"
@@ -467,6 +466,7 @@ int cmlGetMultiRowStringValuesFromSql (char *sql,
 			      int maxNumberOfStringsToGet, 
 			      char *bindVar1,
 			      char *bindVar2,
+			      char *bindVar3,
  		              icatSessionStruct *icss) {
 
     int i,j, stmtNum, ii;
@@ -476,7 +476,7 @@ int cmlGetMultiRowStringValuesFromSql (char *sql,
     if (maxNumberOfStringsToGet <= 0) return(CAT_INVALID_ARGUMENT);
 
     i = cllExecSqlWithResultBV(icss, &stmtNum, sql,
-				 bindVar1,bindVar2,0,0,0,0);
+				 bindVar1,bindVar2,bindVar3,0,0,0);
     if (i != 0) {
       if (i <= CAT_ENV_ERR) return(i); /* already an iRODS error code */
       return (CAT_SQL_ERR);
@@ -1179,7 +1179,7 @@ int checkObjIdByTicket(char *dataId, char *accessLevel,
       cVal[7]=writeByteCount;
       cVal[8]=writeByteLimit;
       status = cmlGetStringValuesFromSql(
-	    "select ticket_id, uses_limit, uses_count, ticket_expiry_ts, restrictions, write_file_count, write_file_limit, write_byte_count, write_byte_limit from R_TICKET_MAIN TM, R_DATA_MAIN DM where TM.ticket_type = 'write' and TM.ticket_string = ? and (TM.object_id=? or (TM.object_id=DM.coll_id and DM.data_id=?))",
+	    "select ticket_id, uses_limit, uses_count, ticket_expiry_ts, restrictions, write_file_count, write_file_limit, write_byte_count, write_byte_limit from R_TICKET_MAIN where ticket_type = 'write' and ticket_string = ? and (object_id = ? or object_id in (select coll_id from R_DATA_MAIN where data_id = ?))",
 	    cVal, iVal, 9, 
 	    ticketStr, dataId, dataId, icss);
 
@@ -1188,7 +1188,7 @@ int checkObjIdByTicket(char *dataId, char *accessLevel,
       /* don't check ticket type, 'read' or 'write' is fine */
       if (logSQL_CML!=0) rodsLog(LOG_SQL, "checkObjIdByTicket SQL 2 ");
       status = cmlGetStringValuesFromSql(
-	    "select ticket_id, uses_limit, uses_count, ticket_expiry_ts, restrictions from R_TICKET_MAIN TM, R_DATA_MAIN DM where TM.ticket_string = ? and (TM.object_id=? or (TM.object_id=DM.coll_id and DM.data_id=?))",
+	    "select ticket_id, uses_limit, uses_count, ticket_expiry_ts, restrictions from R_TICKET_MAIN where ticket_string = ? and (object_id = ? or object_id in (select coll_id from R_DATA_MAIN where data_id = ?))",
 	    cVal, iVal, 5, 
 	    ticketStr, dataId, dataId, icss);
    }
@@ -1311,7 +1311,7 @@ cmlTicketUpdateWriteBytes(char *ticketStr,
    
    if (logSQL_CML!=0) rodsLog(LOG_SQL, "cmlTicketUpdateWriteBytes SQL 1 ");
    status = cmlGetStringValuesFromSql(
-      "select ticket_id, write_byte_count, write_byte_limit from R_TICKET_MAIN TM, R_DATA_MAIN DM where TM.ticket_type = 'write' and TM.ticket_string = ? and (TM.object_id=? or (TM.object_id=DM.coll_id and DM.data_id=?))",
+	      "select ticket_id, write_byte_count, write_byte_limit from R_TICKET_MAIN where ticket_type = 'write' and ticket_string = ? and (object_id = ? or object_id in (select coll_id from R_DATA_MAIN where data_id = ?))",
       cVal, iVal, 3, 
       ticketStr, objectId, objectId, icss);
    if (status != 0) return(status);
@@ -1409,6 +1409,26 @@ int cmlCheckGroupAdminAccess(char *userName, char *userZone,
    if (status) return(status);
    return(0);
 }
+
+/* 
+ Get the number of users who are members of a user group.
+ This is used in some groupadmin access checks.
+ */
+int cmlGetGroupMemberCount(char *groupName, icatSessionStruct *icss)
+{
+
+  rodsLong_t iVal;
+  int status;
+  status = cmlGetIntegerValueFromSql(
+	     "select count(user_id) from r_user_group where  group_user_id != user_id and group_user_id in (select user_id from r_user_main where user_name=? and user_type_name='rodsgroup')",
+	 &iVal, groupName, 0, 0, 0, 0, icss);
+  if (status==0) {
+     status = iVal;
+  }
+  return(status);
+}
+
+
 
 /*********************************************************************
 The following are the auditing functions, different forms.  cmlAudit1,

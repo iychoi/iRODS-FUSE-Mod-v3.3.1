@@ -124,10 +124,32 @@ rsRsyncDataToFile (rsComm_t *rsComm, dataObjInp_t *dataObjInp)
           "rsRsyncDataToFile: RSYNC_CHKSUM_KW input is missing for %s",
 	  dataObjInp->objPath);
         return (CHKSUM_EMPTY_IN_STRUCT_ERR);
-    }
+    } 
 
+#if defined(PREFER_SHA256_FILE_HASH) && PREFER_SHA256_FILE_HASH <= 1
+
+    char *chksum, *chksum2;
+    if(strlen(fileChksumStr) > 0) {
+        chksum = chksum2 = strdup(fileChksumStr);
+    } else {
+        chksum = chksum2 = NULL;
+    }
+    status = _rsDataObjChksum (rsComm, dataObjInp, &chksum,
+      &dataObjInfoHead);
+    dataObjChksumStr = chksum;
+    if(chksum2 != NULL) {
+        free(chksum2);
+    }
+#else
+    if((status = verifyHashUse(fileChksumStr)) < 0) {
+        rodsLog (LOG_ERROR, 
+            "rsRsyncDataToFile: unsupported file hash for %s, status = %d",
+            dataObjInp->objPath, status);
+        return (status);
+    }
     status = _rsDataObjChksum (rsComm, dataObjInp, &dataObjChksumStr,
       &dataObjInfoHead);
+#endif
 
     if (status < 0 && status != CAT_NO_ACCESS_PERMISSION && 
       status != CAT_NO_ROWS_FOUND) {
@@ -191,9 +213,33 @@ rsRsyncFileToData (rsComm_t *rsComm, dataObjInp_t *dataObjInp)
           "rsRsyncFileToData: RSYNC_CHKSUM_KW input is missing");
         return (CHKSUM_EMPTY_IN_STRUCT_ERR);
     }
+    
+    
+#if defined(PREFER_SHA256_FILE_HASH) && PREFER_SHA256_FILE_HASH <= 1
+
+    char *chksum, *chksum2;
+    if(strlen(fileChksumStr) > 0) {
+        chksum = chksum2 = strdup(fileChksumStr);
+    } else {
+        chksum = chksum2 = NULL;
+    }
+    status = _rsDataObjChksum (rsComm, dataObjInp, &chksum,
+      &dataObjInfoHead);
+    dataObjChksumStr = chksum;
+    if(chksum2 != NULL) {
+        free(chksum2);
+    }
+#else
+    if((status = verifyHashUse(fileChksumStr)) < 0) {
+        rodsLog (LOG_ERROR, 
+            "rsRsyncFileToData: unsupported file hash for %s, status = %d",
+            dataObjInp->objPath, status);
+        return (status);
+    }
 
     status = _rsDataObjChksum (rsComm, dataObjInp, &dataObjChksumStr,
       &dataObjInfoHead);
+#endif
 
     if (status < 0 && status != CAT_NO_ACCESS_PERMISSION && 
       status != CAT_NO_ROWS_FOUND) {

@@ -1544,6 +1544,10 @@ int chlRegResc(rsComm_t *rsComm,
       return(CAT_INSUFFICIENT_PRIVILEGE_LEVEL);
    }
 
+   if (strlen(rescInfo->rescName)<1) {
+      return(CAT_INVALID_RESOURCE);
+   }
+
    if (logSQL!=0) rodsLog(LOG_SQL, "chlRegResc SQL 1 ");
    seqNum = cmlGetNextSeqVal(&icss);
    if (seqNum < 0) {
@@ -3515,6 +3519,10 @@ int chlCheckAuth(rsComm_t *rsComm, char *challenge, char *response,
    rodsLong_t pamMaxTime;
    char *pSha1;
    int hashType;
+   int queryCount, doMore;
+   char lastPwModTs[MAX_PASSWORD_LEN+10];
+   char *cPwTs;
+   int iTs1, iTs2;
 
 #if defined(OS_AUTH)
    int doOsAuthentication = 0;
@@ -3582,54 +3590,73 @@ int chlCheckAuth(rsComm_t *rsComm, char *challenge, char *response,
    }
 #endif
 
-   if (logSQL!=0) rodsLog(LOG_SQL, "chlCheckAuth SQL 1 ");
-
-   status = cmlGetMultiRowStringValuesFromSql(
+   doMore=1;
+   for (queryCount=0;doMore==1;queryCount++) {
+     if (queryCount==0) {
+       if (logSQL!=0) rodsLog(LOG_SQL, "chlCheckAuth SQL 1 ");
+       status = cmlGetMultiRowStringValuesFromSql(
 	    "select rcat_password, pass_expiry_ts, R_USER_PASSWORD.create_ts, R_USER_PASSWORD.modify_ts from R_USER_PASSWORD, R_USER_MAIN where user_name=? and zone_name=? and R_USER_MAIN.user_id = R_USER_PASSWORD.user_id",
 	    pwInfoArray, MAX_PASSWORD_LEN,
 	    MAX_PASSWORDS*4,  /* four strings per password returned */
-	    userName2, myUserZone, &icss);
-   if (status < 4) {
-      if (status == CAT_NO_ROWS_FOUND) {
+	    userName2, myUserZone, 0, &icss);
+     }
+     else {
+       if (queryCount==1) {
+	 /* first time using the order by below, start with 0 to be sure */
+	 rstrcpy(lastPwModTs, "00000000000", sizeof(lastPwModTs));
+       }
+       if (logSQL!=0) rodsLog(LOG_SQL, "chlCheckAuth SQL 8");
+       status = cmlGetMultiRowStringValuesFromSql(
+	    "select rcat_password, pass_expiry_ts, R_USER_PASSWORD.create_ts, R_USER_PASSWORD.modify_ts from R_USER_PASSWORD, R_USER_MAIN where user_name=? and zone_name=? and R_USER_MAIN.user_id = R_USER_PASSWORD.user_id and R_USER_PASSWORD.modify_ts >=? order by R_USER_PASSWORD.modify_ts",
+	    pwInfoArray, MAX_PASSWORD_LEN,
+	    MAX_PASSWORDS*4,  /* four strings per password returned */
+	    userName2, myUserZone, lastPwModTs, &icss);
+     }
+
+     if (status < 4) {
+       if (status == CAT_NO_ROWS_FOUND) {
 	 status = CAT_INVALID_USER; /* Be a little more specific */
 	 if (strncmp(ANONYMOUS_USER, userName2, NAME_LEN)==0) {
 	    /* anonymous user, skip the pw check but do the rest */
 	    goto checkLevel;
 	 }
-      } 
-      return(status);
-   }
+       } 
+       return(status);
+     }
 
-   nPasswords=status/4;    /* four strings per password returned */
-   goodPwExpiry[0]='\0';
-   goodPwTs[0]='\0';
-   goodPwModTs[0]='\0';
+     nPasswords=status/4;    /* four strings per password returned */
+     goodPwExpiry[0]='\0';
+     goodPwTs[0]='\0';
+     goodPwModTs[0]='\0';
 
-   cpw=pwInfoArray;
-   for (k=0;k<MAX_PASSWORDS && k<nPasswords;k++) {
-      memset(md5Buf, 0, sizeof(md5Buf));
-      strncpy(md5Buf, challenge, CHALLENGE_LEN);
-      rstrcpy(lastPw, cpw, MAX_PASSWORD_LEN);
-      icatDescramble(cpw);
-      strncpy(md5Buf+CHALLENGE_LEN, cpw, MAX_PASSWORD_LEN);
+     if (nPasswords != MAX_PASSWORDS) doMore=0;  /* End the loop if
+						less than the max has
+						been returned. */
+     cpw=pwInfoArray;
+     for (k=0;k<MAX_PASSWORDS && k<nPasswords;k++) {
+       memset(md5Buf, 0, sizeof(md5Buf));
+       strncpy(md5Buf, challenge, CHALLENGE_LEN);
+       rstrcpy(lastPw, cpw, MAX_PASSWORD_LEN);
+       icatDescramble(cpw);
+       strncpy(md5Buf+CHALLENGE_LEN, cpw, MAX_PASSWORD_LEN);
 
-      obfMakeOneWayHash(hashType,
+       obfMakeOneWayHash(hashType,
                   (unsigned char *)md5Buf, CHALLENGE_LEN+MAX_PASSWORD_LEN,
 		  (unsigned char *)digest);
 
-      for (i=0;i<RESPONSE_LEN;i++) {
+       for (i=0;i<RESPONSE_LEN;i++) {
 	 if (digest[i]=='\0') digest[i]++;  /* make sure 'string' doesn't end
 				       early (this matches client code) */
-      }
+       }
 
-      cp = response;
-      OK=1;
-      for (i=0;i<RESPONSE_LEN;i++) {
+       cp = response;
+       OK=1;
+       for (i=0;i<RESPONSE_LEN;i++) {
 	 if (*cp++ != digest[i]) OK=0;
-      }
-
-      memset(md5Buf, 0, sizeof(md5Buf));
-      if (OK==1) {
+       }
+       
+       memset(md5Buf, 0, sizeof(md5Buf));
+       if (OK==1) {
 	 rstrcpy(goodPw, cpw, MAX_PASSWORD_LEN);
 	 cpw+=MAX_PASSWORD_LEN;
 	 rstrcpy(goodPwExpiry, cpw, MAX_PASSWORD_LEN);
@@ -3637,11 +3664,27 @@ int chlCheckAuth(rsComm_t *rsComm, char *challenge, char *response,
 	 rstrcpy(goodPwTs, cpw, MAX_PASSWORD_LEN);
 	 cpw+=MAX_PASSWORD_LEN;
 	 rstrcpy(goodPwModTs, cpw, MAX_PASSWORD_LEN);
+	 doMore=0;
 	 break;
-      }
-      cpw+=MAX_PASSWORD_LEN*4;
+       }
+       if (k==(nPasswords-1)) { /* only on the last iteration */
+	 cPwTs=cpw+(MAX_PASSWORD_LEN*3);
+	 iTs1=atoi(cPwTs);
+	 iTs2=atoi(lastPwModTs);
+	 if (iTs1==iTs2) {
+           /* MAX_PASSWORDS at same time-stamp, skip ahead to avoid infinite
+           loop; things should recover eventually */
+	   snprintf(lastPwModTs, sizeof lastPwModTs, "%011d", iTs1+1);
+	 }
+	 else {
+	   /* normal case */
+	    rstrcpy(lastPwModTs, cPwTs, sizeof(lastPwModTs));
+	 }
+       }
+       cpw+=MAX_PASSWORD_LEN*4;
+     }
+     memset(pwInfoArray, 0, sizeof(pwInfoArray));
    }
-   memset(pwInfoArray, 0, sizeof(pwInfoArray));
 
    if (OK==0) {
       prevFailure++;
@@ -3723,7 +3766,10 @@ int chlCheckAuth(rsComm_t *rsComm, char *challenge, char *response,
       }
 
       /* Also remove any expired temporary passwords */
-
+      /* Note that we're only doing this after a temporary password is
+	 successfully used to avoid running this SQL often.  It should
+	 be fairly quick but does check every password and this only
+	 normally needs to be done once in a while. */
       if (logSQL!=0) rodsLog(LOG_SQL, "chlCheckAuth SQL 4");
       snprintf(expireStr, sizeof expireStr, "%d", TEMP_PASSWORD_TIME);
       cllBindVars[cllBindVarCount++]=expireStr; 
@@ -4155,11 +4201,11 @@ int decodePw(rsComm_t *rsComm, char *in, char *out) {
    pwLen2 = strlen(upassword);
 
    if (pwLen2 > MAX_PASSWORD_LEN-5 && pwLen2==pwLen1) {
-      /* probable failure */
-      char errMsg[160];
+      /* Include a message with some probable failure causes */
+      char errMsg[260];
       int i;
-      snprintf(errMsg, 150, 
-	       "Error with password encoding.\nPlease try connecting directly to the ICAT host (setenv irodsHost)");
+      snprintf(errMsg, 250, 
+	       "Error with password encoding.  This can be caused by not connecting directly to the ICAT host, not using password authentication (using GSI or Kerberos instead), or entering your password incorrectly (if prompted).");
       i = addRErrorMsg (&rsComm->rError, 0, errMsg);
       return(CAT_PASSWORD_ENCODING_ERROR);
    }
@@ -4533,6 +4579,11 @@ int chlModUser(rsComm_t *rsComm, char *userName, char *option,
       i = decodePw(rsComm, newValue, decoded);
 
       status2 = icatApplyRule(rsComm, "acCheckPasswordStrength", decoded);
+      if (status2==NO_RULE_OR_MSI_FUNCTION_FOUND_ERR) {
+         int status3;
+         status3 = addRErrorMsg (&rsComm->rError, 0, 
+                                 "acCheckPasswordStrength rule not found");
+      }
       if (status2) return(status2);
 
       icatScramble(decoded); 
@@ -4662,11 +4713,27 @@ int chlModGroup(rsComm_t *rsComm, char *groupName, char *option,
 
    if (rsComm->clientUser.authInfo.authFlag < LOCAL_PRIV_USER_AUTH ||
        rsComm->proxyUser.authInfo.authFlag < LOCAL_PRIV_USER_AUTH) {
-	  int status2;
-	  status2  = cmlCheckGroupAdminAccess(
+      int status2, status3, status4;
+      status2  = cmlCheckGroupAdminAccess(
 	     rsComm->clientUser.userName,
 	     rsComm->clientUser.rodsZone, groupName, &icss);
-	  if (status2 != 0) return(status2);
+      if (status2 != 0) {
+	 /* User is not a groupadmin that is a member of this group. */
+	 /* But if we're doing an 'add' and they are a groupadmin
+	    and the group is empty, allow it */
+	 if (strcmp(option, "add")==0) {
+	    status3 =  cmlCheckGroupAdminAccess(
+			   rsComm->clientUser.userName,
+			   rsComm->clientUser.rodsZone, "", &icss);
+	    if (status3==0) {
+	       status4 = cmlGetGroupMemberCount(groupName, &icss);
+	       if (status4==0) { /* call succeeded and the total is 0 */
+		 status2=0;      /* reset the error to success to allow it */
+	       }
+	    }
+	 }
+      }
+      if (status2 != 0) return(status2);
    }
 
    status = getLocalZone();
@@ -6068,7 +6135,7 @@ int chlSetAVUMetadata(rsComm_t *rsComm, char *type,
    if (logSQL != 0) rodsLog(LOG_SQL, "chlSetAVUMetadata SQL 2");
    /* Query to see if the attribute exists for this object */
    status = cmlGetMultiRowStringValuesFromSql("select meta_id from R_OBJT_METAMAP where meta_id in (select meta_id from R_META_MAIN where meta_attr_name=? AND meta_id in (select meta_id from R_OBJT_METAMAP where object_id=?))",
-		metaIdStr, MAX_NAME_LEN, 2, attribute, objIdStr, &icss);
+	      metaIdStr, MAX_NAME_LEN, 2, attribute, objIdStr, 0, &icss);
    
    if (status <= 0) {
      if (status == CAT_NO_ROWS_FOUND) { 
@@ -6107,7 +6174,7 @@ int chlSetAVUMetadata(rsComm_t *rsComm, char *type,
    /* Check if there are other objects are using this AVU  */
    if (logSQL != 0) rodsLog(LOG_SQL, "chlSetAVUMetadata SQL 4");
    status = cmlGetMultiRowStringValuesFromSql("select meta_id from R_META_MAIN where meta_attr_name=?",
-	    metaIdStr, MAX_NAME_LEN, 2, attribute, 0, &icss);
+	      metaIdStr, MAX_NAME_LEN, 2, attribute, 0, 0, &icss);
    if (status <= 0) {
      rodsLog(LOG_NOTICE,
 	      "chlSetAVUMetadata cmlGetMultiRowStringValueFromSql failure %d",
@@ -7711,15 +7778,87 @@ int chlModAccessControl(rsComm_t *rsComm, int recursiveFlag,
    makeEscapedPath(pathName, pathStart, sizeof(pathStart));
    strncat(pathStart, "/%", sizeof(pathStart));
 
+#if (defined ORA_ICAT || defined MY_ICAT)
+#else
+   /* The temporary table created and used below has been found to
+      greatly speed up the execution of subsequent deletes and
+      updates.  We did a lot of testing and 'explain' SQL using a copy
+      (minus passwords) of the large iPlant ICAT DB to find this.  It
+      makes sense that using a table like this will speed it up,
+      except for the constraints aspect (further below).
+
+      It is very likely that the same temporary table would also speed
+      up Oracle and MySQL ICATs but we didn't have time to test that
+      so this is only for Postgres for now.  The SQL for creating the
+      table is probably a bit different for Oracle and MySQL but
+      otherwise I expect this would work for them.
+
+      Before this change the SQL could take minutes on a very large
+      instance.  With this, it can take less than a second on a
+      'ichmod -r' on a small sub-collection, and is fairly fast on
+      moderate sized ones.  I expect it will perform somewhat better
+      than the old SQL on large ones, but I was unable to reliably
+      test this on our fairly modest hardware.
+
+      Since these SQL statements are only for Postgres, we can't add
+      rodsLog(LOG_SQL, ...) calls (so 'devtest' will verify it is
+      called), but since the later postgres SQL depends on this table,
+      we can be sure this is exercised if "chlModAccessControl SQL 8" is.
+   */
+   status =  cmlExecuteNoAnswerSql("create temporary table R_MOD_ACCESS_TEMP1 (coll_id bigint not null, coll_name varchar(2700) not null) on commit drop",
+				   &icss);
+   if (status==CAT_SUCCESS_BUT_WITH_NO_INFO) status=0;
+   if (status != 0) {
+      rodsLog(LOG_NOTICE,
+	     "chlModAccessControl cmlExecuteNoAnswerSql create temp table failure %d",
+	      status);
+      _rollback("chlModAccessControl");
+      return(status);
+   }
+
+   status =  cmlExecuteNoAnswerSql("create unique index idx_r_mod_access_temp1 on R_MOD_ACCESS_TEMP1 (coll_name)",
+				   &icss);
+   if (status==CAT_SUCCESS_BUT_WITH_NO_INFO) status=0;
+   if (status != 0) {
+      rodsLog(LOG_NOTICE,
+	   "chlModAccessControl cmlExecuteNoAnswerSql create index failure %d",
+	    status);
+      _rollback("chlModAccessControl");
+      return(status);
+   }
+
+   cllBindVars[cllBindVarCount++]=pathName;
+   cllBindVars[cllBindVarCount++]=pathStart;
+   status =  cmlExecuteNoAnswerSql("insert into R_MOD_ACCESS_TEMP1 (coll_id, coll_name) select  coll_id, coll_name from R_COLL_MAIN where coll_name = ? or coll_name like ?",
+				   &icss);
+   if (status==CAT_SUCCESS_BUT_WITH_NO_INFO) status=0;
+   if (status != 0) {
+      rodsLog(LOG_NOTICE,
+	    "chlModAccessControl cmlExecuteNoAnswerSql insert failure %d",
+	     status);
+      _rollback("chlModAccessControl");
+      return(status);
+   }
+#endif
+
    cllBindVars[cllBindVarCount++]=userIdStr;
    cllBindVars[cllBindVarCount++]=pathName;
    cllBindVars[cllBindVarCount++]=pathStart;
    if (logSQL!=0) rodsLog(LOG_SQL, "chlModAccessControl SQL 8");
-   status =  cmlExecuteNoAnswerSql(
 #if (defined ORA_ICAT || defined MY_ICAT)
+   status =  cmlExecuteNoAnswerSql(
                 "delete from R_OBJT_ACCESS where user_id=? and object_id = ANY (select data_id from R_DATA_MAIN where coll_id in (select coll_id from R_COLL_MAIN where coll_name = ? or coll_name like ?))",
 #else
-                "delete from R_OBJT_ACCESS where user_id=? and object_id = ANY(ARRAY(select data_id from R_DATA_MAIN where coll_id in (select coll_id from R_COLL_MAIN where coll_name = ? or coll_name like ?)))",
+     /*  Use the temporary table to greatly speed up this operation
+	 (and similar ones below).  The last constraint, the 'where
+	 coll_name = ? or coll_name like ?' isn't really needed (since
+	 that table was populated via constraints like those) but,
+	 oddly, does seem to make it run much faster.  Using 'explain'
+	 SQL and test runs confirmed that it is faster with those
+	 constraints.
+     */
+   status =  cmlExecuteNoAnswerSql(
+                "delete from R_OBJT_ACCESS where user_id=? and object_id = ANY(ARRAY(select data_id from R_DATA_MAIN where coll_id in (select coll_id from R_MOD_ACCESS_TEMP1 where coll_name = ? or coll_name like ?)))",
 #endif
                 &icss);
    if (status != 0 && status != CAT_SUCCESS_BUT_WITH_NO_INFO) {
@@ -7730,13 +7869,13 @@ int chlModAccessControl(rsComm_t *rsComm, int recursiveFlag,
    cllBindVars[cllBindVarCount++]=userIdStr;
    cllBindVars[cllBindVarCount++]=pathName;
    cllBindVars[cllBindVarCount++]=pathStart;
-
    if (logSQL!=0) rodsLog(LOG_SQL, "chlModAccessControl SQL 9");
-   status =  cmlExecuteNoAnswerSql(
 #if (defined ORA_ICAT || defined MY_ICAT)
+   status =  cmlExecuteNoAnswerSql(
  	   "delete from R_OBJT_ACCESS where user_id=? and object_id = ANY (select coll_id from R_COLL_MAIN where coll_name = ? or coll_name like ?)",
 #else
- 	   "delete from R_OBJT_ACCESS where user_id=? and object_id = ANY(ARRAY(select coll_id from R_COLL_MAIN where coll_name = ? or coll_name like ?))",
+   status =  cmlExecuteNoAnswerSql(
+ 	   "delete from R_OBJT_ACCESS where user_id=? and object_id = ANY(ARRAY(select coll_id from R_MOD_ACCESS_TEMP1 where coll_name = ? or coll_name like ?))",
 #endif
 	       &icss);
    if (status != 0 && status != CAT_SUCCESS_BUT_WITH_NO_INFO) {
@@ -7784,8 +7923,9 @@ int chlModAccessControl(rsComm_t *rsComm, int recursiveFlag,
 	         "insert into R_OBJT_ACCESS (object_id, user_id, access_type_id, create_ts, modify_ts)  (select distinct data_id, ?, (select token_id from R_TOKN_MAIN where token_namespace = 'access_type' and token_name = ?), ?, ? from R_DATA_MAIN where coll_id in (select coll_id from R_COLL_MAIN where coll_name = ? or coll_name like ?))",
 		 &icss);
 #else
+   /* For Postgres, also use the temporary R_MOD_ACCESS_TEMP1 table */
    status =  cmlExecuteNoAnswerSql(
-	         "insert into R_OBJT_ACCESS (object_id, user_id, access_type_id, create_ts, modify_ts)  (select distinct data_id, cast(? as bigint), (select token_id from R_TOKN_MAIN where token_namespace = 'access_type' and token_name = ?), ?, ? from R_DATA_MAIN where coll_id in (select coll_id from R_COLL_MAIN where coll_name = ? or coll_name like ?))",
+	         "insert into R_OBJT_ACCESS (object_id, user_id, access_type_id, create_ts, modify_ts)  (select distinct data_id, cast(? as bigint), (select token_id from R_TOKN_MAIN where token_namespace = 'access_type' and token_name = ?), ?, ? from R_DATA_MAIN where coll_id in (select coll_id from R_MOD_ACCESS_TEMP1 where coll_name = ? or coll_name like ?))",
 		 &icss);
 #endif
    if (status == CAT_SUCCESS_BUT_WITH_NO_INFO) status=0; /* no files, OK */
@@ -7813,8 +7953,10 @@ int chlModAccessControl(rsComm_t *rsComm, int recursiveFlag,
 	         "insert into R_OBJT_ACCESS (object_id, user_id, access_type_id, create_ts, modify_ts)  (select distinct coll_id, ?, (select token_id from R_TOKN_MAIN where token_namespace = 'access_type' and token_name = ?), ?, ? from R_COLL_MAIN where coll_name = ? or coll_name like ?)",
 		 &icss);
 #else
+   /* For Postgres, also use the temporary R_MOD_ACCESS_TEMP1 table */
    status =  cmlExecuteNoAnswerSql(
-	         "insert into R_OBJT_ACCESS (object_id, user_id, access_type_id, create_ts, modify_ts)  (select distinct coll_id, cast(? as bigint), (select token_id from R_TOKN_MAIN where token_namespace = 'access_type' and token_name = ?), ?, ? from R_COLL_MAIN where coll_name = ? or coll_name like ?)",
+	         "insert into R_OBJT_ACCESS (object_id, user_id, access_type_id, create_ts, modify_ts)  (select distinct coll_id, cast(? as bigint), (select token_id from R_TOKN_MAIN where token_namespace = 'access_type' and token_name = ?), ?, ? from R_MOD_ACCESS_TEMP1 where coll_name = ? or coll_name like ?)",
+
 		 &icss);
 #endif
    if (status != 0) {
@@ -7839,6 +7981,7 @@ int chlModAccessControl(rsComm_t *rsComm, int recursiveFlag,
    status =  cmlExecuteNoAnswerSql("commit", &icss);
    return(status);
 }
+
 
 /* 
  * chlRenameObject - Rename a dataObject or collection.

@@ -340,7 +340,14 @@ rescInfo_t *rescInfo)
 
     if ((chksum = getValByKey (&phyPathRegInp->condInput, 
       REG_CHKSUM_KW)) != NULL) {
-        rstrcpy (dataObjInfo.chksum, chksum, NAME_LEN);
+        if((status = verifyHashUse(chksum)) == 0) {
+            rstrcpy (dataObjInfo.chksum, chksum, CHKSUM_LEN);
+        } else {
+            rodsLog (LOG_ERROR, 
+                "rodsPathReg: unsupported file hash for %s, status = %d",
+                dataObjInfo.objPath, status);
+            return (status);
+        }
     }
     else if ((chksum = getValByKey (&phyPathRegInp->condInput, 
            VERIFY_CHKSUM_KW)) != NULL) {
@@ -351,7 +358,7 @@ rescInfo_t *rescInfo)
              dataObjInfo.objPath, status);
             return (status);
         }
-        rstrcpy (dataObjInfo.chksum, chksum, NAME_LEN);
+        rstrcpy (dataObjInfo.chksum, chksum, CHKSUM_LEN);
     }
 
     setDataTypeByResc (&dataObjInfo);

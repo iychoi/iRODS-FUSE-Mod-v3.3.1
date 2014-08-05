@@ -622,6 +622,48 @@ freeAllDataObjInfo (dataObjInfo_t *dataObjInfoHead)
     return (0);
 }
 
+/*
+ This is like freeAddDataObjInfo but with two lists as input and it
+ checks to not free an item more than once.  This is needed to avoid a
+ douple-free segfault which would happen in some cases, for example if
+ the user is replicating a data-object to a resource that already has
+ a valid copy.
+ */
+int
+freeAllDataObjInfoDouble (dataObjInfo_t *dataObjInfoHeadOne,
+			  dataObjInfo_t *dataObjInfoHeadTwo)
+{
+    int status;
+    dataObjInfo_t *tmpDataObjInfoOne, *nextDataObjInfoOne;
+    dataObjInfo_t *tmpDataObjInfoTwo, *nextDataObjInfoTwo;
+    int isDup;
+    tmpDataObjInfoOne = dataObjInfoHeadOne;
+
+    /* First, go thru the first list free items but only those that are
+       not in the second. */
+    while (tmpDataObjInfoOne != NULL) {
+       nextDataObjInfoOne = tmpDataObjInfoOne->next;
+       tmpDataObjInfoTwo = dataObjInfoHeadTwo;
+       isDup=0;
+       while (tmpDataObjInfoTwo != NULL) {
+	  nextDataObjInfoTwo = tmpDataObjInfoTwo->next;
+	  if (tmpDataObjInfoOne == tmpDataObjInfoTwo) { isDup=1; }
+	  tmpDataObjInfoTwo = nextDataObjInfoTwo;
+       }
+       if (isDup==0) {
+	  freeDataObjInfo (tmpDataObjInfoOne);
+       }
+       else {
+ 	  rodsLog(LOG_ERROR,"Info: isDup %x",tmpDataObjInfoOne);
+       }
+       tmpDataObjInfoOne = nextDataObjInfoOne;
+    }
+
+    /* Now, free all the items in the second list */
+    status = freeAllDataObjInfo(dataObjInfoHeadTwo);
+    return(status);
+}
+
 /* queDataObjInfo - queue the input dataObjInfo in dataObjInfoHead queue.
  * Input
  * int singleInfoFlag - 1 - the input dataObjInfo is a single dataObjInfo.
@@ -3815,7 +3857,7 @@ printReleaseInfo(char *cmdName) {
    char tmp[40];
    strncpy(tmp, RODS_REL_VERSION, 40);   /* to skip over the 'rods' part 
 					    of the string */
-   printf("\niRODS Version %s                  %s                      %s\n",
+   printf("\niRODS Version %s                  %s                  %s\n",
 	  (char*)&tmp[4], RODS_RELEASE_DATE, cmdName);
    return;
 }
@@ -3899,11 +3941,11 @@ initBulkDataObjRegInp (genQueryOut_t *bulkDataObjRegInp)
     bzero (bulkDataObjRegInp->sqlResult[8].value,
       NAME_LEN * MAX_NUM_BULK_OPR_FILES);
     bulkDataObjRegInp->sqlResult[9].attriInx = COL_D_DATA_CHECKSUM;
-    bulkDataObjRegInp->sqlResult[9].len = NAME_LEN;
+    bulkDataObjRegInp->sqlResult[9].len = CHKSUM_LEN;
     bulkDataObjRegInp->sqlResult[9].value =
-      (char *)malloc (NAME_LEN * MAX_NUM_BULK_OPR_FILES);
+      (char *)malloc (CHKSUM_LEN * MAX_NUM_BULK_OPR_FILES);
     bzero (bulkDataObjRegInp->sqlResult[9].value,
-      NAME_LEN * MAX_NUM_BULK_OPR_FILES);
+      CHKSUM_LEN * MAX_NUM_BULK_OPR_FILES);
 
     bulkDataObjRegInp->continueInx = -1;
 
@@ -3973,10 +4015,10 @@ int modFlag, int replNum, char *chksum, genQueryOut_t *bulkDataObjRegInp)
     snprintf (&bulkDataObjRegInp->sqlResult[8].value[NAME_LEN * rowCnt],
       NAME_LEN, "%d", replNum);
     if (chksum != NULL && strlen (chksum) > 0) {
-        rstrcpy (&bulkDataObjRegInp->sqlResult[9].value[NAME_LEN * rowCnt],
-         chksum, NAME_LEN);
+        rstrcpy (&bulkDataObjRegInp->sqlResult[9].value[CHKSUM_LEN * rowCnt],
+         chksum, CHKSUM_LEN);
     } else {
-	bulkDataObjRegInp->sqlResult[9].value[NAME_LEN * rowCnt] = '\0';
+	bulkDataObjRegInp->sqlResult[9].value[CHKSUM_LEN * rowCnt] = '\0';
     }
 
     bulkDataObjRegInp->rowCnt++;
@@ -4019,11 +4061,11 @@ initAttriArrayOfBulkOprInp (bulkOprInp_t *bulkOprInp)
       getValByKey (&bulkOprInp->condInput, VERIFY_CHKSUM_KW) != NULL) {
         i = attriArray->attriCnt;
         attriArray->sqlResult[i].attriInx = COL_D_DATA_CHECKSUM;
-        attriArray->sqlResult[i].len = NAME_LEN;
+        attriArray->sqlResult[i].len = CHKSUM_LEN;
         attriArray->sqlResult[i].value =
-          (char *)malloc (NAME_LEN * MAX_NUM_BULK_OPR_FILES);
+          (char *)malloc (CHKSUM_LEN * MAX_NUM_BULK_OPR_FILES);
         bzero (attriArray->sqlResult[i].value,
-          NAME_LEN * MAX_NUM_BULK_OPR_FILES);
+          CHKSUM_LEN * MAX_NUM_BULK_OPR_FILES);
         attriArray->attriCnt++;
     }
     attriArray->continueInx = -1;
@@ -4053,11 +4095,11 @@ int offset, bulkOprInp_t *bulkOprInp)
               "initAttriArrayOfBulkOprInp: getSqlResultByInx for COL_D_DATA_CHECKSUM failed");
             return (UNMATCHED_KEY_OR_INDEX);
 	} else {
-            rstrcpy (&chksum->value[NAME_LEN * rowCnt], inpChksum, NAME_LEN);
+            rstrcpy (&chksum->value[CHKSUM_LEN * rowCnt], inpChksum, CHKSUM_LEN);
 	}
     } else {
         if (chksum != NULL) {
-	    chksum->value[NAME_LEN * rowCnt] = '\0';
+	    chksum->value[CHKSUM_LEN * rowCnt] = '\0';
 	}
     }
     rstrcpy (&attriArray->sqlResult[0].value[MAX_NAME_LEN * rowCnt],

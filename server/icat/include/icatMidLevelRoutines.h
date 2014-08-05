@@ -80,6 +80,7 @@ int cmlGetMultiRowStringValuesFromSql (char *sql,
 			      int maxNumberOfStringsToGet, 
 			      char *bindVar1,
 			      char *bindVar2,
+			      char *bindVar3,
 			      icatSessionStruct *icss);
 
 int cmlGetIntegerValueFromSql (char *sql, 
@@ -194,6 +195,8 @@ rodsLong_t cmlCheckDataObjOwn( char *dirName, char *dataName, char *userName,
 
 int cmlCheckGroupAdminAccess(char *userName, char *userZone, 
 			     char *groupName, icatSessionStruct *icss);
+
+int cmlGetGroupMemberCount(char *groupName, icatSessionStruct *icss);
 
 int cmlDebug(int mode);
 

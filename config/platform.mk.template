@@ -181,8 +181,13 @@ ifeq ($(OS_platform), aix_platform)
 LDADD+= $(LIB_GSI_AUTH) $(KRB_LIBS)
 CL_LDADD+= $(LIB_GSI_AUTH) $(KRB_LIBS)
 else
+ifeq ($(OS_platform), osx_platform)
+LDADD+= $(LIB_GSI_AUTH) $(KRB_LIBS)
+CL_LDADD+= $(LIB_GSI_AUTH) $(KRB_LIBS)
+else
 LDADD+= $(LIB_GSI_AUTH) $(KRB_LIBS) -z muldefs
 CL_LDADD+= $(LIB_GSI_AUTH) $(KRB_LIBS) -z muldefs
+endif
 endif
 endif
 
@@ -368,4 +373,14 @@ endif
 
 ifdef STORAGE_ADMIN_ROLE
 MY_CFLAG+= -DSTORAGE_ADMIN_ROLE
+endif
+
+ifdef SHA256_FILE_HASH
+ifdef PREFER_SHA256_FILE_HASH
+MY_CFLAG+= -DPREFER_SHA256_FILE_HASH=$(PREFER_SHA256_FILE_HASH)
+endif
+MY_CFLAG+= -DSHA256_FILE_HASH
+MY_CFLAG+= -I$(SHA256_INC)
+LDADD+= -l$(SHA256_LIB)
+CL_LDADD+= -l$(SHA256_LIB)
 endif
