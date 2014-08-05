@@ -46,12 +46,12 @@ File Write Performance
 
 File Size | iRODS-FUSE (Unmodified) | iRODS-FUSE-Mod
 --- | --- | ---
-10MB |
-50MB |
-100MB |
-500MB |
-1GB |
-2GB |
+10MB | Failed (bug in the code) | 0.4 seconds
+50MB | Failed (bug in the code) | 1.2 seconds
+100MB | Failed (bug in the code) | 5.0 seconds
+500MB | Failed (bug in the code) | 13.3 seconds
+1GB | Failed (bug in the code) | 30.7 seconds
+2GB | Failed (bug in the code) | 60.9 seconds
 
 Debug Mode
 ----------
