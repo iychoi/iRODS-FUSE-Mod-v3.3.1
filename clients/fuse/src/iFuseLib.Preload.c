@@ -519,13 +519,15 @@ static void *_preloadThread(void *arg) {
 
     // remove from hash table
     tmpPreloadThreadInfo = (preloadThreadInfo_t *)deleteFromHashTable(PreloadThreadTable, threadInfo->path);
-    if(tmpPreloadThreadInfo != NULL) {
-        free(tmpPreloadThreadInfo);
-    }
-
     UNLOCK(PreloadLock);
 
-    free(threadInfo);
+    if(threadInfo != NULL) {
+        if(threadInfo->path != NULL) {
+            free(threadInfo->path);
+            threadInfo->path = NULL;
+        }
+        free(threadInfo);
+    }
     pthread_exit(NULL);
 }
 
