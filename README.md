@@ -65,5 +65,5 @@ Example
 To activate preload and lazy-upload feature with default setting, simply type
 
 ```
-irodsFs -o -f --preload --lazyupload /mnt/irods/
+irodsFs --preload --lazyupload /mnt/irods/
 ```
