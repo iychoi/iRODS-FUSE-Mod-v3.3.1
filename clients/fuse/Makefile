@@ -79,7 +79,7 @@ INCLUDES +=	-I$(incDir) -I$(reIncDir)
 CFLAGS_OPTIONS := -g $(CFLAGS) $(MY_CFLAG)
 ifdef IRODS_FS
 CFLAGS_OPTIONS += -D_REENTRANT
-INCLUDES +=	-I$(fuseHomeDir)/include
+INCLUDES += -I$(fuseHomeDir)/include
 endif
 
 CFLAGS =	$(CFLAGS_OPTIONS) $(INCLUDES) $(LIB_INCLUDES) $(SVR_INCLUDES) $(MODULE_CFLAGS)

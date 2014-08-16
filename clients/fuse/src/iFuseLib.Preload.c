@@ -701,12 +701,7 @@ _hasValidCache(const char *path, struct stat *stbuf) {
     if (stbufCache.st_size != stbuf->st_size) {
         return -1; // invalid size
     }
-
-    if (stbufCache.st_mtim.tv_sec != stbuf->st_mtim.tv_sec) {
-        return -1; // invalid mod time
-    }
-
-    if (stbufCache.st_mtim.tv_nsec != stbuf->st_mtim.tv_nsec) {
+    if (stbufCache.st_mtime != stbuf->st_mtime) {
         return -1; // invalid mod time
     }
 
