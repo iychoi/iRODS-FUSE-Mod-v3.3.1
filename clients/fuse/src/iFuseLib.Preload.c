@@ -142,8 +142,7 @@ preloadFile (const char *path, struct stat *stbuf) {
     // convert input path to iRODSPath
     status = _getiRODSPath(path, iRODSPath);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "preloadFile: _getiRODSPath error.");
-        rodsLog (LOG_ERROR, "preloadFile: failed to get iRODS path - %s", path);
+        rodsLog (LOG_DEBUG, "preloadFile: failed to get iRODS path - %s", path);
         return status;
     }
 
@@ -183,7 +182,7 @@ preloadFile (const char *path, struct stat *stbuf) {
                 // evict?
                 status = _evictOldCache((cacheSize + stbuf->st_size) - (off_t)PreloadConfig.cacheMaxSize);
                 if(status < 0) {
-                    rodsLog (LOG_ERROR, "preloadFile: failed to evict old cache");
+                    rodsLog (LOG_DEBUG, "preloadFile: failed to evict old cache");
                     UNLOCK(PreloadLock);
                     return status;
                 }
@@ -228,8 +227,7 @@ invalidatePreloadedCache (const char *path) {
 
     status = _getiRODSPath(path, iRODSPath);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "invalidatePreloadedCache: _getiRODSPath error.");
-        rodsLog (LOG_ERROR, "invalidatePreloadedCache: failed to get iRODS path - %s", path);
+        rodsLog (LOG_DEBUG, "invalidatePreloadedCache: failed to get iRODS path - %s", path);
         return status;
     }
 
@@ -250,15 +248,13 @@ renamePreloadedCache (const char *fromPath, const char *toPath) {
 
     status = _getiRODSPath(fromPath, fromiRODSPath);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "renamePreloadedCache: _getiRODSPath error.");
-        rodsLog (LOG_ERROR, "renamePreloadedCache: failed to get iRODS path - %s", fromPath);
+        rodsLog (LOG_DEBUG, "renamePreloadedCache: failed to get iRODS path - %s", fromPath);
         return status;
     }
 
     status = _getiRODSPath(toPath, toiRODSPath);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "renamePreloadedCache: _getiRODSPath error.");
-        rodsLog (LOG_ERROR, "renamePreloadedCache: failed to get iRODS path - %s", toPath);
+        rodsLog (LOG_DEBUG, "renamePreloadedCache: failed to get iRODS path - %s", toPath);
         return status;
     }
 
@@ -278,8 +274,7 @@ truncatePreloadedCache (const char *path, off_t size) {
 
     status = _getiRODSPath(path, iRODSPath);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "truncatePreloadedCache: _getiRODSPath error.");
-        rodsLog (LOG_ERROR, "truncatePreloadedCache: failed to get iRODS path - %s", path);
+        rodsLog (LOG_DEBUG, "truncatePreloadedCache: failed to get iRODS path - %s", path);
         return status;
     }
 
@@ -299,8 +294,7 @@ isPreloaded (const char *path) {
 
     status = _getiRODSPath(path, iRODSPath);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "isPreloaded: _getiRODSPath error.");
-        rodsLog (LOG_ERROR, "isPreloaded: failed to get iRODS path - %s", path);
+        rodsLog (LOG_DEBUG, "isPreloaded: failed to get iRODS path - %s", path);
         return status;
     }
 
@@ -323,15 +317,13 @@ openPreloadedFile (const char *path) {
 
     status = _getiRODSPath(path, iRODSPath);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "openPreloadedFile: _getiRODSPath error.");
-        rodsLog (LOG_ERROR, "openPreloadedFile: failed to get iRODS path - %s", path);
+        rodsLog (LOG_DEBUG, "openPreloadedFile: failed to get iRODS path - %s", path);
         return status;
     }
 
     status = _getCachePath(iRODSPath, preloadCachePath);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "openPreloadedFile: _getCachePath error.");
-        rodsLog (LOG_ERROR, "openPreloadedFile: failed to get cache path - %s", path);
+        rodsLog (LOG_DEBUG, "openPreloadedFile: failed to get cache path - %s", path);
         return status;
     }
 
@@ -390,8 +382,7 @@ readPreloadedFile (int fileDesc, char *buf, size_t size, off_t offset) {
     seek_status = lseek (fileDesc, offset, SEEK_SET);
     if (seek_status != offset) {
         status = (int)seek_status;
-        rodsLogError(LOG_ERROR, status, "readPreloadedFile: lseek error.");
-        rodsLog (LOG_ERROR, "readPreloadedFile: failed to seek file desc - %d, %ld -> %ld", fileDesc, offset, seek_status);
+        rodsLog (LOG_DEBUG, "readPreloadedFile: failed to seek file desc - %d, %ld -> %ld", fileDesc, offset, seek_status);
 
         UNLOCK(PreloadLock);
         return status;
@@ -414,8 +405,7 @@ closePreloadedFile (const char *path) {
 
     status = _getiRODSPath(path, iRODSPath);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "closePreloadedFile: _getiRODSPath error.");
-        rodsLog (LOG_ERROR, "closePreloadedFile: failed to get iRODS path - %s", path);
+        rodsLog (LOG_DEBUG, "closePreloadedFile: failed to get iRODS path - %s", path);
         return status;
     }
 
@@ -453,14 +443,13 @@ moveToPreloadedDir (const char *path, const char *iRODSPath) {
     char preloadCachePath[MAX_NAME_LEN];
 
     if (path == NULL || iRODSPath == NULL) {
-        rodsLog (LOG_ERROR, "moveToPreloadedDir: input path or iRODSPath is NULL");
+        rodsLog (LOG_DEBUG, "moveToPreloadedDir: input path or iRODSPath is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
     status = _getCachePath(iRODSPath, preloadCachePath);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "moveToPreloadedDir: _getCachePath error.");
-        rodsLog (LOG_ERROR, "moveToPreloadedDir: failed to get cache path - %s", path);
+        rodsLog (LOG_DEBUG, "moveToPreloadedDir: failed to get cache path - %s", path);
         return status;
     }
 
@@ -470,7 +459,7 @@ moveToPreloadedDir (const char *path, const char *iRODSPath) {
     // move the file
     status = rename(path, preloadCachePath);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "moveToPreloadedDir: rename error.");
+        rodsLog (LOG_DEBUG, "moveToPreloadedDir: rename error : %d", status);
         return status;
     }
 
@@ -487,7 +476,7 @@ static void *_preloadThread(void *arg) {
     preloadThreadInfo_t *tmpPreloadThreadInfo;
 
     if(threadData == NULL) {
-        rodsLog (LOG_ERROR, "_preloadThread: given thread argument is null");
+        rodsLog (LOG_DEBUG, "_preloadThread: given thread argument is null");
         pthread_exit(NULL);
     }
 
@@ -543,15 +532,13 @@ _download(const char *path, struct stat *stbufIn) {
     // set path for getUtil
     status = _getCachePath(path, preloadCachePath);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "_download: _getCachePath error.");
-        rodsLog (LOG_ERROR, "_download: failed to get cache path - %s", path);
+        rodsLog (LOG_DEBUG, "_download: failed to get cache path - %s", path);
         return status;
     }
 
     status = _getCacheWorkPath(path, preloadCacheWorkPath);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "_download: _getCacheWorkPath error.");
-        rodsLog (LOG_ERROR, "_download: failed to get cache work path - %s", path);
+        rodsLog (LOG_DEBUG, "_download: failed to get cache work path - %s", path);
         return status;
     }
 
@@ -562,7 +549,7 @@ _download(const char *path, struct stat *stbufIn) {
     addSrcInPath( &rodsPathInp, (char*)path );
     status = parseRodsPath (&rodsPathInp.srcPath[0], PreloadRodsEnv);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "_download: parseRodsPath error.");
+        rodsLog (LOG_DEBUG, "_download: parseRodsPath error : %d", status);
         return status;
     }
 
@@ -572,14 +559,14 @@ _download(const char *path, struct stat *stbufIn) {
     rstrcpy( rodsPathInp.destPath->inPath, preloadCacheWorkPath, MAX_NAME_LEN );
     status = parseLocalPath (rodsPathInp.destPath);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "_download: parseLocalPath error.");
+        rodsLog (LOG_DEBUG, "_download: parseLocalPath error : %d", status);
         return status;
     }
 
     // Connect
     conn = rcConnect (PreloadRodsEnv->rodsHost, PreloadRodsEnv->rodsPort, PreloadRodsEnv->rodsUserName, PreloadRodsEnv->rodsZone, RECONN_TIMEOUT, &errMsg);
     if (conn == NULL) {
-        rodsLog (LOG_ERROR, "_download: error occurred while connecting to irods");
+        rodsLog (LOG_DEBUG, "_download: error occurred while connecting to irods");
         return -EPIPE;
     }
 
@@ -587,7 +574,7 @@ _download(const char *path, struct stat *stbufIn) {
     if (strcmp (PreloadRodsEnv->rodsUserName, PUBLIC_USER_NAME) != 0) { 
         status = clientLogin(conn);
         if (status != 0) {
-            rodsLogError(LOG_ERROR, status, "_download: ClientLogin error.");
+            rodsLog (LOG_DEBUG, "_download: ClientLogin error : %d", status);
             rcDisconnect(conn);
             return status;
         }
@@ -605,7 +592,7 @@ _download(const char *path, struct stat *stbufIn) {
     rcDisconnect(conn);
 
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "_download: getUtil error.");
+        rodsLog (LOG_DEBUG, "_download: getUtil error : %d", status);
         return status;
     }
 
@@ -613,7 +600,7 @@ _download(const char *path, struct stat *stbufIn) {
     LOCK(PreloadLock);
     status = _completeDownload(preloadCacheWorkPath, preloadCachePath, stbufIn);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "_download: _completeDownload error.");
+        rodsLog (LOG_DEBUG, "_download: _completeDownload error : %d", status);
         UNLOCK(PreloadLock);
         return status;
     }
@@ -628,7 +615,7 @@ _completeDownload(const char *workPath, const char *cachePath, struct stat *stbu
     struct utimbuf amtime;
 
     if (workPath == NULL || cachePath == NULL || stbuf == NULL) {
-        rodsLog (LOG_ERROR, "_completeDownload: input workPath or cachePath or stbuf is NULL");
+        rodsLog (LOG_DEBUG, "_completeDownload: input workPath or cachePath or stbuf is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
@@ -639,14 +626,14 @@ _completeDownload(const char *workPath, const char *cachePath, struct stat *stbu
     // set last access time and modified time the same as the original file
     status = utime(workPath, &amtime);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "_completeDownload: utime error.");
+        rodsLog (LOG_DEBUG, "_completeDownload: utime error : %d", status);
         return status;
     }
 
     // change the name
     status = rename(workPath, cachePath);
     if(status < 0) {
-        rodsLogError(LOG_ERROR, status, "_completeDownload: rename error.");
+        rodsLog (LOG_DEBUG, "_completeDownload: rename error : %d", status);
         return status;
     }
 
@@ -660,18 +647,17 @@ _hasCache(const char *path) {
     struct stat stbufCache;
 
     if (path == NULL) {
-        rodsLog (LOG_ERROR, "_hasCache: input inPath is NULL");
+        rodsLog (LOG_DEBUG, "_hasCache: input inPath is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
 	if ((status = _getCachePath(path, cachePath)) < 0) {
-        rodsLogError(LOG_ERROR, status, "_hasCache: _getCachePath error.");
+        rodsLog (LOG_DEBUG, "_hasCache: _getCachePath error : %d", status);
         return status;
     }
 
     if ((status = stat(cachePath, &stbufCache)) < 0) {
-        //rodsLog (LOG_ERROR, "_hasCache: stat error for %s", cachePath);
-        //rodsLogError(LOG_ERROR, status, "_hasCache: stat error");
+        //rodsLog (LOG_DEBUG, "_hasCache: stat error for %s", cachePath);
         return status;
     }
 
@@ -685,7 +671,7 @@ _hasValidCache(const char *path, struct stat *stbuf) {
     struct stat stbufCache;
 
     if (path == NULL || stbuf == NULL) {
-        rodsLog (LOG_ERROR, "_hasValidCache: input path or stbuf is NULL");
+        rodsLog (LOG_DEBUG, "_hasValidCache: input path or stbuf is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
@@ -715,7 +701,7 @@ _invalidateCache(const char *path) {
     char cacheWorkPath[MAX_NAME_LEN];
 
     if (path == NULL) {
-        rodsLog (LOG_ERROR, "_invalidateCache: input path is NULL");
+        rodsLog (LOG_DEBUG, "_invalidateCache: input path is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
@@ -826,7 +812,7 @@ _evictOldCache(off_t sizeNeeded) {
     while(sizeNeeded > removedCacheSize) {
         status = _findOldestCache(PreloadConfig.cachePath, oldCachePath, &statbuf);
         if(status < 0) {
-            rodsLog (LOG_ERROR, "_evictOldCache: findOldestCache failed");
+            rodsLog (LOG_DEBUG, "_evictOldCache: findOldestCache failed");
             return status;
         }
 
@@ -839,7 +825,7 @@ _evictOldCache(off_t sizeNeeded) {
         // remove
         status = unlink(oldCachePath);
         if(status < 0) {
-            rodsLog (LOG_ERROR, "_evictOldCache: unlink failed - %s", oldCachePath);
+            rodsLog (LOG_DEBUG, "_evictOldCache: unlink failed - %s", oldCachePath);
             return status;
         }
 
@@ -852,7 +838,7 @@ _evictOldCache(off_t sizeNeeded) {
 static int
 _getCachePath(const char *path, char *cachePath) {
     if (path == NULL || cachePath == NULL) {
-        rodsLog (LOG_ERROR, "_getCachePath: given path or cachePath is NULL");
+        rodsLog (LOG_DEBUG, "_getCachePath: given path or cachePath is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
@@ -867,7 +853,7 @@ _getCachePath(const char *path, char *cachePath) {
 static int
 _getCacheWorkPath(const char *path, char *cachePath) {
     if (path == NULL || cachePath == NULL) {
-        rodsLog (LOG_ERROR, "_getCacheWorkPath: given path or cachePath is NULL");
+        rodsLog (LOG_DEBUG, "_getCacheWorkPath: given path or cachePath is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 

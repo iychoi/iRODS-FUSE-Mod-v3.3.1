@@ -18,6 +18,7 @@
 /* some global variables */
 
 extern rodsEnv MyRodsEnv;
+fuseConfig_t MyFuseConfig;
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
 preloadConfig_t MyPreloadConfig;
 lazyUploadConfig_t MyLazyUploadConfig;
@@ -52,6 +53,7 @@ static struct fuse_operations irodsOper =
 };
 #endif
 
+int parseFuseCmdLineOpt (int argc, char **argv, fuseConfig_t *fuseConfig);
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
 int parsePreloadAndLazyUploadCmdLineOpt (int argc, char **argv, preloadConfig_t *preloadConfig, lazyUploadConfig_t *lazyUploadConfig);
 int releasePreloadConfig (preloadConfig_t *preloadConfig);
@@ -163,8 +165,26 @@ irodsOper.flush = irodsFlush;
         exit (1);
     }
 
+    /* parse the fuse command-line options */
+    status = parseFuseCmdLineOpt (argc, argv, &MyFuseConfig);
+    
+    if (status < 0) {
+        printf("Use -h for help.\n");
+        exit (1);
+    }
+
+    if (MyFuseConfig.nonempty) {
+        rodsLog (LOG_DEBUG, "fuse nonempty option is set");
+    }
+    if (MyFuseConfig.foreground) {
+        rodsLog (LOG_DEBUG, "fuse foreground option is set");
+    }
+    if (MyFuseConfig.debug) {
+        rodsLog (LOG_DEBUG, "fuse debug option is set");
+    }
+
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
-    /* handle the preload and lazy upload command line options first */
+    /* handle the preload and lazy upload command line options*/
     status = parsePreloadAndLazyUploadCmdLineOpt (argc, argv, &MyPreloadConfig, &MyLazyUploadConfig);
 
     if (status < 0) {
@@ -207,6 +227,11 @@ irodsOper.flush = irodsFlush;
     initPreload (&MyPreloadConfig, &MyRodsEnv, &myRodsArgs);
     initLazyUpload (&MyLazyUploadConfig, &MyRodsEnv, &myRodsArgs);
 #endif
+    {
+        for(int i=0;i<argc;i++) {
+            printf("argv[%d] = %s\n", i, argv[i]);
+        }
+    }
 
     status = fuse_main (argc, argv, &irodsOper, NULL);
 
@@ -230,6 +255,37 @@ irodsOper.flush = irodsFlush;
     } else {
         exit(0);
     }
+}
+
+int
+parseFuseCmdLineOpt (int argc, char **argv, fuseConfig_t *fuseConfig) {
+    int i;
+    memset(fuseConfig, 0, sizeof(fuseConfig_t));
+
+    for (i=0;i<argc;i++) {
+        if (strcmp("-o", argv[i])==0) {
+            if (i + 2 < argc) {
+                if (strcmp("nonempty", argv[i+1])==0) {
+                    fuseConfig->nonempty = 1;
+                    // do not pass nonempty to fuse -- this will cause crash
+                    argv[i]="-Z";
+                    argv[i+1]="-Z";
+                }
+                if (strcmp("-f", argv[i+1])==0) {
+                    fuseConfig->foreground = 1;
+                    //argv[i]="-Z";
+                    //argv[i+1]="-Z";
+                }
+                if (strcmp("-d", argv[i+1])==0) {
+                    fuseConfig->debug = 1;
+                    //argv[i]="-Z";
+                    //argv[i+1]="-Z";
+                }
+            }
+        }
+    }
+
+    return(0);
 }
 
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD

@@ -133,6 +133,12 @@ typedef struct newlyCreatedFile {
 
 #define FUSE_FILE_CACHE_EXPIRED(cacheTime, c) (cachedTime - (c).cachedTime  >= MAX_NEWLY_CREATED_TIME)
 
+typedef struct FuseConfig {
+    int nonempty;
+    int foreground;
+    int debug;
+} fuseConfig_t;
+
 typedef struct PreloadConfig {
     int preload;
     int clearCache;
@@ -149,6 +155,7 @@ typedef struct LazyUploadConfig {
 #define PRELOAD_FILES_IN_DOWNLOADING_EXT    ".part"
 #define NUM_PRELOAD_THREAD_HASH_SLOT	201
 #define NUM_LAZYUPLOAD_FILE_HASH_SLOT   201
+#define NUM_LAZYUPLOAD_UPLOADING_HASH_SLOT  201
 
 typedef struct PreloadThreadInfo {
 #ifdef USE_BOOST
@@ -343,6 +350,8 @@ isLazyUploadEnabled ();
 int
 isLazyUploadBufferred (const char *path);
 int
+isBufferredFileUploading (const char *path);
+int
 mknodLazyUploadBufferredFile (const char *path);
 int
 openLazyUploadBufferredFile (const char *path, int accmode);
@@ -350,8 +359,6 @@ int
 writeLazyUploadBufferredFile (const char *path, const char *buf, size_t size, off_t offset);
 int
 closeLazyUploadBufferredFile (const char *path);
-int
-uploadFile (const char *path);
 #ifdef  __cplusplus
 }
 #endif

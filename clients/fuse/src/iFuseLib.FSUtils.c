@@ -14,7 +14,7 @@ getiRODSPath(const char *path, char *iRODSPath, const char *rodsHome, const char
     char tmpStr[MAX_NAME_LEN];
 
     if (path == NULL || iRODSPath == NULL) {
-        rodsLog (LOG_ERROR, "getiRODSPath: given path or iRODSPath is NULL");
+        rodsLog (LOG_DEBUG, "getiRODSPath: given path or iRODSPath is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
@@ -68,7 +68,7 @@ getiRODSPath(const char *path, char *iRODSPath, const char *rodsHome, const char
 	    while (*tmpPtr2 != '/') {
 	        tmpPtr2 --;
 	        if (tmpPtr2 < iRODSPath) {
-		        rodsLog (LOG_ERROR, "getiRODSPath: parsing error for %s", iRODSPath);
+		        rodsLog (LOG_DEBUG, "getiRODSPath: parsing error for %s", iRODSPath);
 		        return (USER_INPUT_PATH_ERR);
 	        }
 	    }
@@ -89,7 +89,7 @@ getiRODSPath(const char *path, char *iRODSPath, const char *rodsHome, const char
         while (*tmpPtr2 != '/') {
             tmpPtr2 --;
             if (tmpPtr2 < iRODSPath) {
-                rodsLog (LOG_ERROR, "parseRodsPath: parsing error for %s", iRODSPath);
+                rodsLog (LOG_DEBUG, "parseRodsPath: parsing error for %s", iRODSPath);
                 return (USER_INPUT_PATH_ERR);
             }
         }
@@ -137,7 +137,7 @@ prepareDir(const char *path) {
     char dir[MAX_NAME_LEN], file[MAX_NAME_LEN];
     
     if (path == NULL) {
-        rodsLog (LOG_ERROR, "prepareDir: input path is NULL");
+        rodsLog (LOG_DEBUG, "prepareDir: input path is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
@@ -154,7 +154,7 @@ getParentDir(const char *path, char *parent) {
     char dir[MAX_NAME_LEN], file[MAX_NAME_LEN];
 
     if (path == NULL) {
-        rodsLog (LOG_ERROR, "getParentDir: input path is NULL");
+        rodsLog (LOG_DEBUG, "getParentDir: input path is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
@@ -170,7 +170,7 @@ isDirectory(const char *path) {
     struct stat stbuf;
 
     if (path == NULL) {
-        rodsLog (LOG_ERROR, "isDirectory: input path is NULL");
+        rodsLog (LOG_DEBUG, "isDirectory: input path is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
@@ -190,7 +190,7 @@ makeDirs(const char *path) {
     rodsLog (LOG_DEBUG, "makeDirs: %s", path);
 
     if (path == NULL) {
-        rodsLog (LOG_ERROR, "makeDirs: input path is NULL");
+        rodsLog (LOG_DEBUG, "makeDirs: input path is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
