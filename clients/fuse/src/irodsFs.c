@@ -239,6 +239,10 @@ irodsOper.flush = irodsFlush;
     /* release the preload command line options */
     releaseUserCreatedCmdLineOpt (argc, argv);
 
+    // wait preload & lazy upload jobs
+    waitLazyUploadJobs();
+    waitPreloadJobs();
+
     // uninitialize preload
     uninitPreload (&MyPreloadConfig);
     releasePreloadConfig (&MyPreloadConfig);

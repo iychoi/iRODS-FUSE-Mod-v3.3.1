@@ -187,14 +187,22 @@ makeDirs(const char *path) {
     char file[MAX_NAME_LEN];
     int status;
 
-    rodsLog (LOG_DEBUG, "makeDirs: %s", path);
-
     if (path == NULL) {
         rodsLog (LOG_DEBUG, "makeDirs: input path is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
+    if (strlen(path) == 0) {
+        return (0);
+    }
+
+    rodsLog (LOG_DEBUG, "makeDirs: %s", path);
+
     splitPathByKey ((char *) path, dir, file, '/');
+    if (strlen(dir) == 0) {
+        return (0);
+    }
+
     if(isDirectory(dir) < 0) {
         // parent not exist
         // call recursively

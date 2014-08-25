@@ -86,7 +86,7 @@ initPreload (preloadConfig_t *preloadConfig, rodsEnv *myPreloadRodsEnv, rodsArgu
 }
 
 int
-uninitPreload (preloadConfig_t *preloadConfig) {
+waitPreloadJobs () {
     int status;
     int i;
     int size;
@@ -94,21 +94,25 @@ uninitPreload (preloadConfig_t *preloadConfig) {
     // destroy preload thread list
     size = listSize(PreloadThreadList);
     for(i=0;i<size;i++) {
+        LOCK(PreloadLock);
         preloadThreadInfo_t *threadInfo = (preloadThreadInfo_t *)removeFirstElementOfConcurrentList(PreloadThreadList);
-        if(threadInfo->running == PRELOAD_THREAD_RUNNING) {        
+        if(threadInfo != NULL) {
+            rodsLog (LOG_DEBUG, "waitPreloadJobs: Waiting for a preload job - %s", threadInfo->path);
+            UNLOCK(PreloadLock);
 #ifdef USE_BOOST
             status = threadInfo->thread->join();
 #else
             status = pthread_join(threadInfo->thread, NULL);
 #endif
-        }
-
-        if(threadInfo->path != NULL) {
-            free(threadInfo->path);
-            threadInfo->path = NULL;
+        } else {
+            UNLOCK(PreloadLock);
         }
     }
+    return 0;
+}
 
+int
+uninitPreload (preloadConfig_t *preloadConfig) {
     if(preloadConfig->clearCache) {
         // clear all cache
         _removeAllCaches();
@@ -146,7 +150,6 @@ preloadFile (const char *path, struct stat *stbuf) {
         return status;
     }
 
-    // check the given file is already preloaded or preloading
     LOCK(PreloadLock);
 
     // check the given file is preloading
@@ -197,6 +200,7 @@ preloadFile (const char *path, struct stat *stbuf) {
         threadInfo->running = PRELOAD_THREAD_RUNNING;
         INIT_STRUCT_LOCK((*threadInfo));
 
+        addToConcurrentList(PreloadThreadList, threadInfo);
         insertIntoHashTable(PreloadThreadTable, iRODSPath, threadInfo);
 
         // prepare thread argument
@@ -305,6 +309,33 @@ isPreloaded (const char *path) {
     UNLOCK(PreloadLock);
 
     return status;
+}
+
+int
+isPreloading (const char *path) {
+    int status;
+    preloadThreadInfo_t *threadInfo = NULL;
+    char iRODSPath[MAX_NAME_LEN];
+
+    // convert input path to iRODSPath
+    status = _getiRODSPath(path, iRODSPath);
+    if(status < 0) {
+        rodsLog (LOG_DEBUG, "isPreloading: failed to get iRODS path - %s", path);
+        return status;
+    }
+
+    // check the given file is already preloaded or preloading
+    LOCK(PreloadLock);
+
+    // check the given file is preloading
+    threadInfo = (preloadThreadInfo_t *)lookupFromHashTable(PreloadThreadTable, iRODSPath);
+    if(threadInfo != NULL) {
+        UNLOCK(PreloadLock);
+        return 0;
+    }
+
+    UNLOCK(PreloadLock);
+    return -1;
 }
 
 int
@@ -473,7 +504,6 @@ static void *_preloadThread(void *arg) {
     int status;
     preloadThreadData_t *threadData = (preloadThreadData_t *)arg;
     preloadThreadInfo_t *threadInfo = NULL;
-    preloadThreadInfo_t *tmpPreloadThreadInfo;
 
     if(threadData == NULL) {
         rodsLog (LOG_DEBUG, "_preloadThread: given thread argument is null");
@@ -507,8 +537,8 @@ static void *_preloadThread(void *arg) {
     free(threadData);
 
     // remove from hash table
-    tmpPreloadThreadInfo = (preloadThreadInfo_t *)deleteFromHashTable(PreloadThreadTable, threadInfo->path);
-    UNLOCK(PreloadLock);
+    removeFromConcurrentList2(PreloadThreadList, threadInfo);
+    deleteFromHashTable(PreloadThreadTable, threadInfo->path);
 
     if(threadInfo != NULL) {
         if(threadInfo->path != NULL) {
@@ -517,6 +547,8 @@ static void *_preloadThread(void *arg) {
         }
         free(threadInfo);
     }
+
+    UNLOCK(PreloadLock);
     pthread_exit(NULL);
 }
 

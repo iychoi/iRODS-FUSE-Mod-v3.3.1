@@ -154,8 +154,8 @@ typedef struct LazyUploadConfig {
 
 #define PRELOAD_FILES_IN_DOWNLOADING_EXT    ".part"
 #define NUM_PRELOAD_THREAD_HASH_SLOT	201
+#define NUM_LAZYUPLOAD_THREAD_HASH_SLOT	201
 #define NUM_LAZYUPLOAD_FILE_HASH_SLOT   201
-#define NUM_LAZYUPLOAD_UPLOADING_HASH_SLOT  201
 
 typedef struct PreloadThreadInfo {
 #ifdef USE_BOOST
@@ -172,8 +172,25 @@ typedef struct PreloadThreadInfo {
 #endif
 } preloadThreadInfo_t;
 
+typedef struct LazyUploadThreadInfo {
+#ifdef USE_BOOST
+    boost::thread* thread;
+#else
+    pthread_t thread;
+#endif
+    char *path;
+    int running;
+#ifdef USE_BOOST
+    boost::mutex* mutex;
+#else
+    pthread_mutex_t lock;
+#endif
+} lazyUploadThreadInfo_t;
+
 #define PRELOAD_THREAD_RUNNING    1
 #define PRELOAD_THREAD_IDLE    0
+#define LAZYUPLOAD_THREAD_RUNNING    1
+#define LAZYUPLOAD_THREAD_IDLE    0
 
 typedef struct LazyUploadFileInfo {
     char *path;
@@ -191,6 +208,11 @@ typedef struct PreloadThreadData {
     struct stat stbuf;
     preloadThreadInfo_t *threadInfo;
 } preloadThreadData_t;
+
+typedef struct LazyUploadThreadData {
+    char *path;
+    lazyUploadThreadInfo_t *threadInfo;
+} lazyUploadThreadData_t;
 
 #define NUM_PRELOAD_FILEHANDLE_HASH_SLOT    201
 
@@ -320,6 +342,8 @@ int _iFuseConnInuse (iFuseConn_t *iFuseConn);
 int
 initPreload (preloadConfig_t *preloadConfig, rodsEnv *myRodsEnv, rodsArguments_t *myRodsArgs);
 int
+waitPreloadJobs ();
+int
 uninitPreload (preloadConfig_t *preloadConfig);
 int
 isPreloadEnabled();
@@ -334,6 +358,8 @@ truncatePreloadedCache (const char *path, off_t size);
 int
 isPreloaded (const char *path);
 int
+isPreloading (const char *path);
+int
 openPreloadedFile (const char *path);
 int
 readPreloadedFile (int fileDesc, char *buf, size_t size, off_t offset);
@@ -343,6 +369,8 @@ int
 moveToPreloadedDir (const char *path, const char *iRODSPath);
 int
 initLazyUpload (lazyUploadConfig_t *lazyUploadConfig, rodsEnv *myRodsEnv, rodsArguments_t *myRodsArgs);
+int
+waitLazyUploadJobs ();
 int
 uninitLazyUpload (lazyUploadConfig_t *lazyUploadConfig);
 int
