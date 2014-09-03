@@ -1,7 +1,8 @@
 iRODS-FUSE-Mod
 ==============
 
-iRODS-FUSE-Mod is a modified version of iRODS-FUSE (irodsFs, release 3.3.1) to provide preload and lazy-upload for better performance.
+iRODS-FUSE-Mod is a modified version of iRODS-FUSE (irodsFs, release 3.3.1) to provide preload and lazy-upload for better performance in file read and write.
+
 
 Overview
 --------
@@ -9,6 +10,7 @@ Overview
 Original read performance of iRODS FUSE (irodsFs) is slower than "iget" and "iput" command-line tools when we try to read and write large data files stored on remote iRODS servers. This is because "iget" and "iput" uses multi-threaded parallel accesses to remote data files and uses bigger chunk size per request while iRODS FUSE (irodsFs) uses a single thread and small chunk size.
 
 In this modification, file read and write operations are improved by using the same techniques as "iget" and "iput". While reading a big remote file, the modified iRODS FUSE will download the whole file to local disk in a background. Hence, subsequent file read will be boosted. While writing a big file, the modified iRODS FUSE will store the file content written to the local disk and upload the content in the future when the file is closed.
+
 
 FUSE Configuration Options
 --------------------------
@@ -22,14 +24,15 @@ FUSE Configuration Options
 - "--lazyupload" : use lazy-upload
 - "--lazyupload-buffer-dir" : specify lazy-upload buffer directory, if not specified, "/tmp/fuseLazyUploadBuffer/" will be used
 
-If you just want to use the preloading without configuring other parameters that relate to the preloading feature, you will need to give "--preload" option. If you use any other options that relate to the preloading, you don't need to give "--preload". Those options will also set "--preload" option by default.
+If you just want to use the preload without configuring other parameters that relate to the preload feature, you will need to give "--preload" option. If you use any other options that relate to the preload, you don't need to give "--preload". Those options will also set "--preload" option by default.
 
-If you just want to use the lazy-uploading without configuring other parameters that relate to the lazy-uploading feature, you will need to give "--lazyupload" option. If you use any other options that relate to the lazy-uploading, you don't need to give "--lazyupload". Those options will also set "--lazyupload" option by default.
+If you just want to use the lazy-upload without configuring other parameters that relate to the lazy-upload feature, you will need to give "--lazyupload" option. If you use any other options that relate to the lazy-uploading, you don't need to give "--lazyupload". Those options will also set "--lazyupload" option by default.
+
 
 Performance Metrics
 -------------------
 
-Tested with iPlant Atmosphere virtual instance and iPlant DataStore(iRODS).
+Tested with iPlant Atmosphere virtual instance and iPlant DataStore(iRODS). For testing file reads, I used "cp" command to copy whole file content from fuse-mounted directory (iRODS) to local directory (local machine). For testing file writes, I used "cp" command the same but from local directory (local machine) to fuse-mounted directory (iRODS). 
 
 File Read Performance
 
@@ -53,6 +56,7 @@ File Size | iRODS-FUSE (Unmodified) | iRODS-FUSE-Mod
 1GB | 365.1 seconds | 27.5 seconds
 2GB | 747.7 seconds | 53.7 seconds
 
+
 Debug Mode
 ----------
 
@@ -67,3 +71,21 @@ To activate preload and lazy-upload feature with default setting, simply type
 ```
 irodsFs --preload --lazyupload /mnt/irods/
 ```
+
+Internal Behaviors that Users Must Know
+---------------------------------------
+
+Preload and lazy-upload create background threads for downloading the file content to local disk or uploading the file content to remote iRODS filesystem. Usually these threads will still work in background even if users get a command-prompt back. For example, when a user copies only small portion of a big file from iRODS, the user will get a command-prompt back shortly. However, a background preload thread will still download the file to local disk in background for later use.
+
+During a file is in preloading, users can still open for read. Once the background preloading is completed, the read will be switched to local cached file for better performance. However, users cannot open for write, modify or remove. Because this may cause cache be corrupted, those operations will return EBUSY error code (tells "system is busy"). Depends on software implementations, some softwares may return a failure message or wait until the background preload is completed.
+
+During a file is in lazy-uploading, users cannot open for read and write. Any operations that is related to the file will return EBUSY error code as the file is "locked".
+
+When users try to unmount the iRODS-FUSE-MOD, if there is any background threads for preload or lazy-upload, the unmount operation will wait until they complete the job. Hence, forcing unmount (i.e. sudo umount -f <mount_path>) or killing the iRODS-FUSE-MOD process will cause written file content to lost. 
+
+
+Known Issues
+------------
+
+When iRODS-FUSE is mounted to under user's home directory (~/mount_path), iRODS-FUSE hangs. This issue was reported by Jerry. However, as the original iRODS-FUSE has the same issue. I would not fix this issue until an official patch is released.
+
