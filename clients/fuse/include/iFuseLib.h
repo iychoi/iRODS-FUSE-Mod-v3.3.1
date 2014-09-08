@@ -339,6 +339,7 @@ renmeLocalPath (char *from, char *to, char *toIrodsPath);
 int	_chkCacheExpire (pathCacheQue_t *pathCacheQue);
 int _matchAndLockPathCache (char *inPath, pathCacheQue_t *pathQueArray, pathCache_t **outPathCache);
 int _iFuseConnInuse (iFuseConn_t *iFuseConn);
+// PRELOAD
 int
 initPreload (preloadConfig_t *preloadConfig, rodsEnv *myRodsEnv, rodsArguments_t *myRodsArgs);
 int
@@ -346,19 +347,19 @@ waitPreloadJobs ();
 int
 uninitPreload (preloadConfig_t *preloadConfig);
 int
-isPreloadEnabled();
+isPreloadEnabled ();
 int
 preloadFile (const char *path, struct stat *stbuf);
 int
-invalidatePreloadedCache (const char *path);
+invalidatePreloadedFile (const char *path);
 int
-renamePreloadedCache (const char *fromPath, const char *toPath);
+renamePreloadedFile (const char *fromPath, const char *toPath);
 int
-truncatePreloadedCache (const char *path, off_t size);
+truncatePreloadedFile (const char *path, off_t size);
 int
-isPreloaded (const char *path);
+isPreloadedFile (const char *path);
 int
-isPreloading (const char *path);
+isFilePreloading (const char *path);
 int
 openPreloadedFile (const char *path);
 int
@@ -367,6 +368,8 @@ int
 closePreloadedFile (const char *path);
 int
 moveToPreloadedDir (const char *path, const char *iRODSPath);
+
+// lazy-upload
 int
 initLazyUpload (lazyUploadConfig_t *lazyUploadConfig, rodsEnv *myRodsEnv, rodsArguments_t *myRodsArgs);
 int
@@ -376,17 +379,17 @@ uninitLazyUpload (lazyUploadConfig_t *lazyUploadConfig);
 int
 isLazyUploadEnabled ();
 int
-isLazyUploadBufferred (const char *path);
+isFileBufferedForLazyUpload (const char *path);
 int
-isBufferredFileUploading (const char *path);
+isBufferedFileUploading (const char *path);
 int
-mknodLazyUploadBufferredFile (const char *path);
+mknodLazyUploadBufferedFile (const char *path);
 int
-openLazyUploadBufferredFile (const char *path, int accmode);
+openLazyUploadBufferedFile (const char *path, int accmode);
 int
-writeLazyUploadBufferredFile (const char *path, const char *buf, size_t size, off_t offset);
+writeLazyUploadBufferedFile (const char *path, const char *buf, size_t size, off_t offset);
 int
-closeLazyUploadBufferredFile (const char *path);
+closeLazyUploadBufferedFile (const char *path);
 #ifdef  __cplusplus
 }
 #endif

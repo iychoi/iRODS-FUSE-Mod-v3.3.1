@@ -225,13 +225,13 @@ preloadFile (const char *path, struct stat *stbuf) {
 }
 
 int
-invalidatePreloadedCache (const char *path) {
+invalidatePreloadedFile (const char *path) {
     int status;
     char iRODSPath[MAX_NAME_LEN];
 
     status = _getiRODSPath(path, iRODSPath);
     if(status < 0) {
-        rodsLog (LOG_DEBUG, "invalidatePreloadedCache: failed to get iRODS path - %s", path);
+        rodsLog (LOG_DEBUG, "invalidatePreloadedFile: failed to get iRODS path - %s", path);
         return status;
     }
 
@@ -245,20 +245,20 @@ invalidatePreloadedCache (const char *path) {
 }
 
 int
-renamePreloadedCache (const char *fromPath, const char *toPath) {
+renamePreloadedFile (const char *fromPath, const char *toPath) {
     int status;
     char fromiRODSPath[MAX_NAME_LEN];
     char toiRODSPath[MAX_NAME_LEN];
 
     status = _getiRODSPath(fromPath, fromiRODSPath);
     if(status < 0) {
-        rodsLog (LOG_DEBUG, "renamePreloadedCache: failed to get iRODS path - %s", fromPath);
+        rodsLog (LOG_DEBUG, "renamePreloadedFile: failed to get iRODS path - %s", fromPath);
         return status;
     }
 
     status = _getiRODSPath(toPath, toiRODSPath);
     if(status < 0) {
-        rodsLog (LOG_DEBUG, "renamePreloadedCache: failed to get iRODS path - %s", toPath);
+        rodsLog (LOG_DEBUG, "renamePreloadedFile: failed to get iRODS path - %s", toPath);
         return status;
     }
 
@@ -272,13 +272,13 @@ renamePreloadedCache (const char *fromPath, const char *toPath) {
 }
 
 int
-truncatePreloadedCache (const char *path, off_t size) {
+truncatePreloadedFile (const char *path, off_t size) {
     int status;
     char iRODSPath[MAX_NAME_LEN];
 
     status = _getiRODSPath(path, iRODSPath);
     if(status < 0) {
-        rodsLog (LOG_DEBUG, "truncatePreloadedCache: failed to get iRODS path - %s", path);
+        rodsLog (LOG_DEBUG, "truncatePreloadedFile: failed to get iRODS path - %s", path);
         return status;
     }
 
@@ -292,13 +292,13 @@ truncatePreloadedCache (const char *path, off_t size) {
 }
 
 int
-isPreloaded (const char *path) {
+isPreloadedFile (const char *path) {
     int status;
     char iRODSPath[MAX_NAME_LEN];
 
     status = _getiRODSPath(path, iRODSPath);
     if(status < 0) {
-        rodsLog (LOG_DEBUG, "isPreloaded: failed to get iRODS path - %s", path);
+        rodsLog (LOG_DEBUG, "isPreloadedFile: failed to get iRODS path - %s", path);
         return status;
     }
 
@@ -312,7 +312,7 @@ isPreloaded (const char *path) {
 }
 
 int
-isPreloading (const char *path) {
+isFilePreloading (const char *path) {
     int status;
     preloadThreadInfo_t *threadInfo = NULL;
     char iRODSPath[MAX_NAME_LEN];
@@ -320,7 +320,7 @@ isPreloading (const char *path) {
     // convert input path to iRODSPath
     status = _getiRODSPath(path, iRODSPath);
     if(status < 0) {
-        rodsLog (LOG_DEBUG, "isPreloading: failed to get iRODS path - %s", path);
+        rodsLog (LOG_DEBUG, "isFilePreloading: failed to get iRODS path - %s", path);
         return status;
     }
 
@@ -485,7 +485,7 @@ moveToPreloadedDir (const char *path, const char *iRODSPath) {
     }
 
     // make dir
-    prepareDir(preloadCachePath);
+    makeParentDirs(preloadCachePath);
     
     // move the file
     status = rename(path, preloadCachePath);
@@ -613,7 +613,7 @@ _download(const char *path, struct stat *stbufIn) {
     }
 
     // make dir
-    prepareDir(preloadCachePath);
+    makeParentDirs(preloadCachePath);
 
     // Preload
     rodsLog (LOG_DEBUG, "_download: download %s", path);

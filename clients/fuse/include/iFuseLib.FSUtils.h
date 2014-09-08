@@ -10,7 +10,7 @@ extern "C" {
 int
 getiRODSPath(const char *path, char *iRODSPath, const char *rodsHome, const char *rodsCwd);
 int
-prepareDir(const char *path);
+makeParentDirs(const char *path);
 int 
 getParentDir(const char *path, char *parent);
 int

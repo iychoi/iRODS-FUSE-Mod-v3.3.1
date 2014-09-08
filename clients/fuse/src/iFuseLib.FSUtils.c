@@ -132,7 +132,7 @@ getiRODSPath(const char *path, char *iRODSPath, const char *rodsHome, const char
 }
 
 int
-prepareDir(const char *path) {
+makeParentDirs(const char *path) {
     int status;
     char dir[MAX_NAME_LEN], file[MAX_NAME_LEN];
     
