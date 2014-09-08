@@ -958,6 +958,9 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
     int flags = fi->flags;
 
     rodsLog (LOG_DEBUG, "irodsOpen: %s, flags = %d", path, fi->flags);
+    rodsLog (LOG_DEBUG, "irodsOpen: %s, Read = %d", path, ((flags & O_ACCMODE) == O_RDONLY));
+    rodsLog (LOG_DEBUG, "irodsOpen: %s, Write = %d", path, ((flags & O_ACCMODE) == O_WRONLY));
+    rodsLog (LOG_DEBUG, "irodsOpen: %s, RdWr = %d", path, ((flags & O_ACCMODE) == O_RDWR));
 
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
     if (isLazyUploadEnabled() == 0) {

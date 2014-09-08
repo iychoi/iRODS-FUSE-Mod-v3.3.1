@@ -23,7 +23,9 @@ static rodsArguments_t *LazyUploadRodsArgs;
 
 static concurrentList_t *LazyUploadThreadList;
 static Hashtable *LazyUploadThreadTable;
-static Hashtable *LazyUploadBufferredFileTable;
+
+static Hashtable *LazyUploadBufferredFileTable_Created;
+static Hashtable *LazyUploadBufferredFileTable_Opened;
 
 /**************************************************************************
  * function definitions
@@ -51,7 +53,8 @@ initLazyUpload (lazyUploadConfig_t *lazyUploadConfig, rodsEnv *myLazyUploadRodsE
 
     // init hashtables
     LazyUploadThreadTable = newHashTable(NUM_LAZYUPLOAD_THREAD_HASH_SLOT);
-    LazyUploadBufferredFileTable = newHashTable(NUM_LAZYUPLOAD_FILE_HASH_SLOT);
+    LazyUploadBufferredFileTable_Created = newHashTable(NUM_LAZYUPLOAD_FILE_HASH_SLOT);
+    LazyUploadBufferredFileTable_Opened = newHashTable(NUM_LAZYUPLOAD_FILE_HASH_SLOT);
 
     // init lists
     LazyUploadThreadList = newConcurrentList();
@@ -194,7 +197,7 @@ mknodLazyUploadBufferredFile(const char *path) {
     lazyUploadFileInfo->accmode = 0; // clear
     INIT_STRUCT_LOCK((*lazyUploadFileInfo));
 
-    insertIntoHashTable(LazyUploadBufferredFileTable, iRODSPath, lazyUploadFileInfo);
+    insertIntoHashTable(LazyUploadBufferredFileTable_Created, iRODSPath, lazyUploadFileInfo);
 
     UNLOCK(LazyUploadLock);
 
@@ -227,7 +230,15 @@ openLazyUploadBufferredFile(const char *path, int accmode) {
     desc = -1;
 
     // check the given file is bufferred
-    lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadBufferredFileTable, iRODSPath);
+    lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadBufferredFileTable_Opened, iRODSPath);
+    if(lazyUploadFileInfo != NULL) {
+        // has lazy upload file opened
+        rodsLog (LOG_DEBUG, "openLazyUploadBufferredFile: same file is already opened for lazy-upload - %s", iRODSPath);
+        UNLOCK(LazyUploadLock);
+        return -EMFILE;
+    }
+
+    lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadBufferredFileTable_Created, iRODSPath);
     if(lazyUploadFileInfo != NULL) {
         // has lazy upload file handle opened
         if(lazyUploadFileInfo->handle > 0) {
@@ -242,6 +253,10 @@ openLazyUploadBufferredFile(const char *path, int accmode) {
                 lazyUploadFileInfo->handle = desc;
                 lazyUploadFileInfo->accmode = accmode;
                 rodsLog (LOG_DEBUG, "openLazyUploadBufferredFile: opens a file handle - %s", iRODSPath);
+
+                // move to opened hashtable
+                deleteFromHashTable(LazyUploadBufferredFileTable_Created, iRODSPath);
+                insertIntoHashTable(LazyUploadBufferredFileTable_Opened, iRODSPath, lazyUploadFileInfo);
             }
         }
     } else {
@@ -282,7 +297,7 @@ writeLazyUploadBufferredFile (const char *path, const char *buf, size_t size, of
     desc = -1;
 
     // check the given file is bufferred
-    lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadBufferredFileTable, iRODSPath);
+    lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadBufferredFileTable_Opened, iRODSPath);
     if(lazyUploadFileInfo != NULL) {
         // has lazy upload file handle opened
         if(lazyUploadFileInfo->handle > 0) {
@@ -332,7 +347,7 @@ closeLazyUploadBufferredFile (const char *path) {
 
     LOCK(LazyUploadLock);
 
-    lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadBufferredFileTable, iRODSPath);
+    lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadBufferredFileTable_Opened, iRODSPath);
     if(lazyUploadFileInfo != NULL) {
         // has lazy-upload file handle opened
         if(lazyUploadFileInfo->handle > 0) {
@@ -348,7 +363,8 @@ closeLazyUploadBufferredFile (const char *path) {
         threadInfo->running = LAZYUPLOAD_THREAD_RUNNING;
         INIT_STRUCT_LOCK((*threadInfo));
 
-        deleteFromHashTable(LazyUploadBufferredFileTable, iRODSPath);
+        deleteFromHashTable(LazyUploadBufferredFileTable_Opened, iRODSPath);
+        deleteFromHashTable(LazyUploadBufferredFileTable_Created, iRODSPath);
         addToConcurrentList(LazyUploadThreadList, threadInfo);
         insertIntoHashTable(LazyUploadThreadTable, iRODSPath, threadInfo);
 
@@ -532,7 +548,7 @@ _hasBufferredFile(const char *path) {
         return status;
     }
 
-    lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadBufferredFileTable, (char *) path);
+    lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadBufferredFileTable_Opened, (char *) path);
     if (lazyUploadFileInfo == NULL) {
         return -1;
     }
