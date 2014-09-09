@@ -45,6 +45,7 @@ int
 initLazyUpload (lazyUploadConfig_t *lazyUploadConfig, rodsEnv *myLazyUploadRodsEnv, rodsArguments_t *myLazyUploadRodsArgs) {
     rodsLog (LOG_DEBUG, "initLazyUpload: MyLazyUploadConfig.lazyUpload = %d", lazyUploadConfig->lazyUpload);
     rodsLog (LOG_DEBUG, "initLazyUpload: MyLazyUploadConfig.bufferPath = %s", lazyUploadConfig->bufferPath);
+    rodsLog (LOG_DEBUG, "initLazyUpload: empty space = %lld", getEmptypSpace(lazyUploadConfig->bufferPath));
 
     // copy given configuration
     memcpy(&LazyUploadConfig, lazyUploadConfig, sizeof(lazyUploadConfig_t));

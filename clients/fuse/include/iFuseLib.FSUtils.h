@@ -25,6 +25,8 @@ int
 emptyDir(const char *path);
 off_t 
 getFileSizeRecursive(const char *path);
+off_t
+getEmptypSpace(const char *path);
 struct timeval
 getCurrentTime();
 time_t

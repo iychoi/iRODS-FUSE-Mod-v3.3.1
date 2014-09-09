@@ -1,4 +1,5 @@
 #include "iFuseLib.FSUtils.h"
+#include <sys/vfs.h>
 #include <sys/time.h>
 #include <time.h>
 #include <sys/types.h>
@@ -367,6 +368,21 @@ getFileSizeRecursive(const char *path) {
     }
 
     return accumulatedSize;
+}
+
+off_t
+getEmptypSpace(const char *path) {
+    struct statfs statfsbuf;
+    int rc;
+    off_t freesize = 0;
+
+    rc = statfs(path, &statfsbuf);
+
+    if (rc == 0) {
+        freesize = statfsbuf.f_bsize * statfsbuf.f_bavail;
+    }
+
+    return freesize;
 }
 
 struct timeval

@@ -56,6 +56,7 @@ initPreload (preloadConfig_t *preloadConfig, rodsEnv *myPreloadRodsEnv, rodsArgu
     rodsLog (LOG_DEBUG, "initPreload: MyPreloadConfig.cachePath = %s", preloadConfig->cachePath);
     rodsLog (LOG_DEBUG, "initPreload: MyPreloadConfig.cacheMaxSize = %lld", preloadConfig->cacheMaxSize);
     rodsLog (LOG_DEBUG, "initPreload: MyPreloadConfig.preloadMinSize = %lld", preloadConfig->preloadMinSize);
+    rodsLog (LOG_DEBUG, "initPreload: empty space = %lld", getEmptypSpace(preloadConfig->cachePath));
 
     // copy given configuration
     memcpy(&PreloadConfig, preloadConfig, sizeof(preloadConfig_t));
@@ -142,6 +143,7 @@ preloadFile (const char *path, struct stat *stbuf) {
     preloadThreadData_t *threadData = NULL;
     char iRODSPath[MAX_NAME_LEN];
     off_t cacheSize;
+    off_t freeSize;
 
     // convert input path to iRODSPath
     status = _getiRODSPath(path, iRODSPath);
@@ -189,6 +191,17 @@ preloadFile (const char *path, struct stat *stbuf) {
                     UNLOCK(PreloadLock);
                     return status;
                 }
+            }
+        }
+
+        freeSize = getEmptypSpace(PreloadConfig.cachePath);
+        if(freeSize < stbuf->st_size) {
+            // evict?
+            status = _evictOldCache(stbuf->st_size - freeSize);
+            if(status < 0) {
+                rodsLog (LOG_DEBUG, "preloadFile: failed to evict old cache");
+                UNLOCK(PreloadLock);
+                return status;
             }
         }
 
@@ -472,6 +485,7 @@ int
 moveToPreloadedDir (const char *path, const char *iRODSPath) {
     int status;
     char preloadCachePath[MAX_NAME_LEN];
+    off_t cacheSize;
 
     if (path == NULL || iRODSPath == NULL) {
         rodsLog (LOG_DEBUG, "moveToPreloadedDir: input path or iRODSPath is NULL");
@@ -492,6 +506,19 @@ moveToPreloadedDir (const char *path, const char *iRODSPath) {
     if(status < 0) {
         rodsLog (LOG_DEBUG, "moveToPreloadedDir: rename error : %d", status);
         return status;
+    }
+
+    // check whether preload cache exceeds limit
+    if(PreloadConfig.cacheMaxSize > 0) {
+        cacheSize = getFileSizeRecursive(PreloadConfig.cachePath);
+        if(cacheSize > (off_t)PreloadConfig.cacheMaxSize) {
+            // evict?
+            status = _evictOldCache(cacheSize - (off_t)PreloadConfig.cacheMaxSize);
+            if(status < 0) {
+                rodsLog (LOG_DEBUG, "moveToPreloadedDir: failed to evict old cache");
+                return status;
+            }
+        }
     }
 
     return (0);
