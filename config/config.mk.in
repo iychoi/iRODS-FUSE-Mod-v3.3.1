@@ -252,14 +252,7 @@ endif
 # The latest version is 26 for release 2.7. It default to 21 if not defined
 # IRODS_FS = 1
 ifdef IRODS_FS
-ifeq (${OS_platform}, osx_platform)
-# OSX
-fuseHomeDir=/usr/local/include/osxfuse/fuse
-endif
-ifeq ($(OS_platform), linux_platform)
-# LINUX
 fuseHomeDir=/home/mwan/adil/fuse-2.7.0
-endif
 endif
 
 # PHP_LIB - specify whether php library will be loaded into irodsAgent.
