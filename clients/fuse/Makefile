@@ -62,6 +62,9 @@ LIB_OBJS =	\
         $(objDir)/iFuseLib.FSUtils.o \
         $(objDir)/iFuseLib.Preload.o \
         $(objDir)/iFuseLib.LazyUpload.o \
+		  $(objDir)/iFuseLib.Http.o \
+		  $(objDir)/iFuseLib.Trace.o \
+		  $(objDir)/iFuseLib.Logging.o \
 		$(reObjDir)/list.o \
 		$(reObjDir)/hashtable.o \
 		$(reObjDir)/region.o \
@@ -90,9 +93,9 @@ endif
 CFLAGS =	$(CFLAGS_OPTIONS) $(INCLUDES) $(LIB_INCLUDES) $(SVR_INCLUDES) $(MODULE_CFLAGS)
 
 ifeq ($(OS_platform), linux_platform)
-LDFLAGS +=	$(LDADD) $(MODULE_LDFLAGS) -L$(fuseHomeDir)/lib -lfuse -ldl -lrt
+LDFLAGS +=	$(LDADD) $(MODULE_LDFLAGS) -L$(fuseHomeDir)/lib -lfuse -ldl -lrt -lcrypto
 else
-LDFLAGS +=	$(LDADD) $(MODULE_LDFLAGS) -L$(fuseHomeDir)/lib -lfuse -ldl
+LDFLAGS +=	$(LDADD) $(MODULE_LDFLAGS) -L$(fuseHomeDir)/lib -lfuse -ldl -lcrypto
 endif
 
 # for checking memleak
