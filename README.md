@@ -1,19 +1,20 @@
 iRODS-FUSE-Mod
 ==============
 
-iRODS-FUSE-Mod is a modified version of iRODS-FUSE (irodsFs, release 3.3.1) to provide preload and lazy-upload for better performance in file read and write.
-
+iRODS-FUSE-Mod is a modified version of iRODS-FUSE (irodsFs, release 3.3.1) to provide better performance in file read/write and usage tracking.
 
 Overview
 --------
 
-Original read performance of iRODS FUSE (irodsFs) is slower than "iget" and "iput" command-line tools when we try to read and write large data files stored on remote iRODS servers. This is because "iget" and "iput" uses multi-threaded parallel accesses to remote data files and uses bigger chunk size per request while iRODS FUSE (irodsFs) uses a single thread and small chunk size.
+Read/write performance of iRODS FUSE (irodsFs) is much slower than "iget" and "iput", command-line version tools, when we try to deal with large data files. This is because "iget" and "iput" uses multi-threaded accesses to remote data files and uses bigger chunk size per request while iRODS FUSE (irodsFs) uses a single thread and small chunk size.
 
-In this modification, file read and write operations are improved by using the same techniques as "iget" and "iput". While reading a big remote file, the modified iRODS FUSE will download the whole file to local disk in a background. Hence, subsequent file read will be boosted. While writing a big file, the modified iRODS FUSE will store the file content written to the local disk and upload the content in the future when the file is closed.
+In this modification, file read/write performances are improved by using the same techniques as "iget" and "iput" are using. While reading a remote file, the modified iRODS FUSE will download the whole file to local disk in a background. Once it finishes background downloading the file, subsequent file read will be switched from a remote iRODS to a local disk and performance will get faster. When write a file, the modified iRODS FUSE will temporarily store the file content to the local disk and upload when the file is closed lazily. During background preload and lazy-upload, the modification uses same APIs that "iget" and "iput" uses. As they are multi-threaded and use bigger chunk size, preload and lazy-upload works very fast.
+
+This modification also provides usage tracking feature. This feature is developed by Jude Nelson. This feature can be used for monitoring users or debugging purposes. Collected data will be posted to a configured remote server.  
 
 
-FUSE Configuration Options
---------------------------
+FUSE Runtime Configuration Options
+----------------------------------
 
 - "--preload" : use preload
 - "--preload-clear-cache" : clear preload caches
@@ -29,8 +30,8 @@ If you just want to use the preload without configuring other parameters that re
 If you just want to use the lazy-upload without configuring other parameters that relate to the lazy-upload feature, you will need to give "--lazyupload" option. If you use any other options that relate to the lazy-uploading, you don't need to give "--lazyupload". Those options will also set "--lazyupload" option by default.
 
 
-Performance Metrics
--------------------
+Performances
+------------
 
 Tested with iPlant Atmosphere virtual instance and iPlant DataStore(iRODS). For testing file reads, I used "cp" command to copy whole file content from fuse-mounted directory (iRODS) to local directory (local machine). For testing file writes, I used "cp" command the same but from local directory (local machine) to fuse-mounted directory (iRODS). 
 
