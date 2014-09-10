@@ -328,8 +328,8 @@ irodsOper.flush = irodsFlush;
     
     status = trace_begin( NULL );
     if( status != 0 ) {
-       rodsLogError(LOG_ERROR, status, "main: trace_begin failed. ");
-       exit(1);
+        rodsLogError(LOG_ERROR, status, "main: trace_begin failed. ");
+        exit(1);
     }
 #endif
 
