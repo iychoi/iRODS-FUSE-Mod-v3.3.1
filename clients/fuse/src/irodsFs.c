@@ -15,6 +15,10 @@
 #include "iFuseOper.h"
 #include "iFuseLib.h"
 
+#ifdef _TRACE
+#include "iFuseLib.Trace.h"
+#endif
+
 /* some global variables */
 
 extern rodsEnv MyRodsEnv;
@@ -23,6 +27,39 @@ fuseConfig_t MyFuseConfig;
 preloadConfig_t MyPreloadConfig;
 lazyUploadConfig_t MyLazyUploadConfig;
 #endif
+
+
+#ifdef _TRACE
+#ifdef  __cplusplus
+struct fuse_operations irodsOper; 
+#else
+static struct fuse_operations irodsOper =
+{
+  .getattr = traced_irodsGetattr,
+  .readlink = traced_irodsReadlink,
+  .readdir = traced_irodsReaddir,
+  .mknod = traced_irodsMknod,
+  .mkdir = traced_irodsMkdir,
+  .symlink = traced_irodsSymlink,
+  .unlink = traced_irodsUnlink,
+  .rmdir = traced_irodsRmdir,
+  .rename = traced_irodsRename,
+  .link = traced_irodsLink,
+  .chmod = traced_irodsChmod,
+  .chown = traced_irodsChown,
+  .truncate = traced_irodsTruncate,
+  .utimens = traced_irodsUtimens,
+  .open = traced_irodsOpen,
+  .read = traced_irodsRead,
+  .write = traced_irodsWrite,
+  .statfs = traced_irodsStatfs,
+  .release = traced_irodsRelease,
+  .fsync = traced_irodsFsync,
+  .flush = traced_irodsFlush,
+};
+#endif
+
+#else   // no _TRACE
 
 #ifdef  __cplusplus
 struct fuse_operations irodsOper; 
@@ -52,6 +89,8 @@ static struct fuse_operations irodsOper =
   .flush = irodsFlush,
 };
 #endif
+
+#endif // _TRACE
 
 int parseFuseCmdLineOpt (int argc, char **argv, fuseConfig_t *fuseConfig);
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
@@ -103,6 +142,31 @@ int
 main (int argc, char **argv)
 {
 
+#ifdef _TRACE
+   
+irodsOper.getattr = traced_irodsGetattr;
+irodsOper.readlink = traced_irodsReadlink;
+irodsOper.readdir = traced_irodsReaddir;
+irodsOper.mknod = traced_irodsMknod;
+irodsOper.mkdir = traced_irodsMkdir;
+irodsOper.symlink = traced_irodsSymlink;
+irodsOper.unlink = traced_irodsUnlink;
+irodsOper.rmdir = traced_irodsRmdir;
+irodsOper.rename = traced_irodsRename;
+irodsOper.link = traced_irodsLink;
+irodsOper.chmod = traced_irodsChmod;
+irodsOper.chown = traced_irodsChown;
+irodsOper.truncate = traced_irodsTruncate;
+irodsOper.utimens = traced_irodsUtimens;
+irodsOper.open = traced_irodsOpen;
+irodsOper.read = traced_irodsRead;
+irodsOper.write = traced_irodsWrite;
+irodsOper.statfs = traced_irodsStatfs;
+irodsOper.release = traced_irodsRelease;
+irodsOper.fsync = traced_irodsFsync;
+irodsOper.flush = traced_irodsFlush;
+
+#else
 irodsOper.getattr = irodsGetattr;
 irodsOper.readlink = irodsReadlink;
 irodsOper.readdir = irodsReaddir;
@@ -125,6 +189,7 @@ irodsOper.release = irodsRelease;
 irodsOper.fsync = irodsFsync;
 irodsOper.flush = irodsFlush;
 
+#endif  // _TRACE
 
     int status;
     rodsArguments_t myRodsArgs;
@@ -134,6 +199,30 @@ irodsOper.flush = irodsFlush;
     char** argv2;
 
 #ifdef  __cplusplus
+#ifdef _TRACE
+    bzero (&irodsOper, sizeof (irodsOper));
+    irodsOper.getattr = traced_irodsGetattr;
+    irodsOper.readlink = traced_irodsReadlink;
+    irodsOper.readdir = traced_irodsReaddir;
+    irodsOper.mknod = traced_irodsMknod;
+    irodsOper.mkdir = traced_irodsMkdir;
+    irodsOper.symlink = traced_irodsSymlink;
+    irodsOper.unlink = traced_irodsUnlink;
+    irodsOper.rmdir = traced_irodsRmdir;
+    irodsOper.rename = traced_irodsRename;
+    irodsOper.link = traced_irodsLink;
+    irodsOper.chmod = traced_irodsChmod;
+    irodsOper.chown = traced_irodsChown;
+    irodsOper.truncate = traced_irodsTruncate;
+    irodsOper.utimens = traced_irodsUtimens;
+    irodsOper.open = traced_irodsOpen;
+    irodsOper.read = traced_irodsRead;
+    irodsOper.write = traced_irodsWrite;
+    irodsOper.statfs = traced_irodsStatfs;
+    irodsOper.release = traced_irodsRelease;
+    irodsOper.fsync = traced_irodsFsync;
+    irodsOper.flush = traced_irodsFlush;
+#else // no _TRACE
     bzero (&irodsOper, sizeof (irodsOper));
     irodsOper.getattr = irodsGetattr;
     irodsOper.readlink = irodsReadlink;
@@ -156,6 +245,7 @@ irodsOper.flush = irodsFlush;
     irodsOper.release = irodsRelease;
     irodsOper.fsync = irodsFsync;
     irodsOper.flush = irodsFlush;
+#endif // _TRACE
 #endif
 
     status = getRodsEnv (&MyRodsEnv);
@@ -232,9 +322,24 @@ irodsOper.flush = irodsFlush;
             printf("argv[%d] = %s\n", i, argv[i]);
         }
     }
+    
+#ifdef _TRACE
+    // start tracing
+    
+    status = trace_begin( NULL );
+    if( status != 0 ) {
+       rodsLogError(LOG_ERROR, status, "main: trace_begin failed. ");
+       exit(1);
+    }
+#endif
 
     status = fuse_main (argc, argv, &irodsOper, NULL);
 
+#ifdef _TRACE 
+    // stop tracing 
+    trace_end( NULL );
+#endif
+    
 #ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
     /* release the preload command line options */
     releaseUserCreatedCmdLineOpt (argc, argv);
@@ -495,6 +600,12 @@ usage ()
         if (strlen(msgs[i])==0) return;
          printf("%s\n",msgs[i]);
     }
+    
+#ifdef _TRACE
+   
+    trace_usage();
+    
+#endif // _TRACE
 }
 
 
