@@ -15,21 +15,29 @@
 #include "iFuseOper.h"
 #include "iFuseLib.h"
 
-#ifdef _TRACE
+#ifdef ENABLE_PRELOAD
+#include "iFuseLib.Preload.h"
+#endif
+#ifdef ENABLE_LAZY_UPLOAD
+#include "iFuseLib.LazyUpload.h"
+#endif
+
+#ifdef ENABLE_TRACE
 #include "iFuseLib.Trace.h"
 #endif
 
 /* some global variables */
 
 extern rodsEnv MyRodsEnv;
-fuseConfig_t MyFuseConfig;
-#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
+#ifdef ENABLE_PRELOAD
 preloadConfig_t MyPreloadConfig;
+#endif
+#ifdef ENABLE_LAZY_UPLOAD
 lazyUploadConfig_t MyLazyUploadConfig;
 #endif
 
 
-#ifdef _TRACE
+#ifdef ENABLE_TRACE
 #ifdef  __cplusplus
 struct fuse_operations irodsOper; 
 #else
@@ -59,7 +67,7 @@ static struct fuse_operations irodsOper =
 };
 #endif
 
-#else   // no _TRACE
+#else   // no ENABLE_TRACE
 
 #ifdef  __cplusplus
 struct fuse_operations irodsOper; 
@@ -90,16 +98,11 @@ static struct fuse_operations irodsOper =
 };
 #endif
 
-#endif // _TRACE
+#endif // ENABLE_TRACE
 
-int parseFuseCmdLineOpt (int argc, char **argv, fuseConfig_t *fuseConfig);
-#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
-int parsePreloadAndLazyUploadCmdLineOpt (int argc, char **argv, preloadConfig_t *preloadConfig, lazyUploadConfig_t *lazyUploadConfig);
-int releasePreloadConfig (preloadConfig_t *preloadConfig);
-int releaseLazyUploadConfig (lazyUploadConfig_t *lazyUploadConfig);
+int parseFuseSpecificCmdLineOpt(int argc, char **argv);
 int makeCleanCmdLineOpt (int argc, char **argv, int *argc2, char ***argv2);
-int releaseUserCreatedCmdLineOpt (int argc, char **argv);
-#endif
+int releaseCmdLineOpt (int argc, char **argv);
 
 void usage ();
 
@@ -142,7 +145,7 @@ int
 main (int argc, char **argv)
 {
 
-#ifdef _TRACE
+#ifdef ENABLE_TRACE
    
 irodsOper.getattr = traced_irodsGetattr;
 irodsOper.readlink = traced_irodsReadlink;
@@ -189,17 +192,17 @@ irodsOper.release = irodsRelease;
 irodsOper.fsync = irodsFsync;
 irodsOper.flush = irodsFlush;
 
-#endif  // _TRACE
+#endif  // ENABLE_TRACE
 
     int status;
     rodsArguments_t myRodsArgs;
     char *optStr;
     
-    int argc2;
-    char** argv2;
+    int new_argc;
+    char** new_argv;
 
 #ifdef  __cplusplus
-#ifdef _TRACE
+#ifdef ENABLE_TRACE
     bzero (&irodsOper, sizeof (irodsOper));
     irodsOper.getattr = traced_irodsGetattr;
     irodsOper.readlink = traced_irodsReadlink;
@@ -222,7 +225,7 @@ irodsOper.flush = irodsFlush;
     irodsOper.release = traced_irodsRelease;
     irodsOper.fsync = traced_irodsFsync;
     irodsOper.flush = traced_irodsFlush;
-#else // no _TRACE
+#else // no ENABLE_TRACE
     bzero (&irodsOper, sizeof (irodsOper));
     irodsOper.getattr = irodsGetattr;
     irodsOper.readlink = irodsReadlink;
@@ -245,7 +248,7 @@ irodsOper.flush = irodsFlush;
     irodsOper.release = irodsRelease;
     irodsOper.fsync = irodsFsync;
     irodsOper.flush = irodsFlush;
-#endif // _TRACE
+#endif // ENABLE_TRACE
 #endif
 
     status = getRodsEnv (&MyRodsEnv);
@@ -255,38 +258,18 @@ irodsOper.flush = irodsFlush;
         exit (1);
     }
 
-    /* parse the fuse command-line options */
-    status = parseFuseCmdLineOpt (argc, argv, &MyFuseConfig);
-    
-    if (status < 0) {
-        printf("Use -h for help.\n");
-        exit (1);
-    }
-
-    if (MyFuseConfig.nonempty) {
-        rodsLog (LOG_DEBUG, "fuse nonempty option is set");
-    }
-    if (MyFuseConfig.foreground) {
-        rodsLog (LOG_DEBUG, "fuse foreground option is set");
-    }
-    if (MyFuseConfig.debug) {
-        rodsLog (LOG_DEBUG, "fuse debug option is set");
-    }
-
-#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
-    /* handle the preload and lazy upload command line options*/
-    status = parsePreloadAndLazyUploadCmdLineOpt (argc, argv, &MyPreloadConfig, &MyLazyUploadConfig);
+    /* handle iRODS-FUSE specific command line options*/
+    status = parseFuseSpecificCmdLineOpt (argc, argv);
 
     if (status < 0) {
         printf("Use -h for help.\n");
         exit (1);
     }
 
-    status = makeCleanCmdLineOpt (argc, argv, &argc2, &argv2);
+    status = makeCleanCmdLineOpt (argc, argv, &new_argc, &new_argv);
 
-    argc = argc2;
-    argv = argv2;
-#endif
+    argc = new_argc;
+    argv = new_argv;
 
     optStr = "hdo:";
 
@@ -312,20 +295,16 @@ irodsOper.flush = irodsFlush;
     initConn();
     initFileCache();
 
-#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
+#ifdef ENABLE_PRELOAD
     // initialize preload
     initPreload (&MyPreloadConfig, &MyRodsEnv, &myRodsArgs);
-    initLazyUpload (&MyLazyUploadConfig, &MyRodsEnv, &myRodsArgs);
 #endif
-    {
-        for(int i=0;i<argc;i++) {
-            printf("argv[%d] = %s\n", i, argv[i]);
-        }
-    }
-    
-#ifdef _TRACE
+#ifdef ENABLE_LAZY_UPLOAD
+    // initialize Lazy Upload
+    initLazyUpload (&MyLazyUploadConfig, &MyRodsEnv, &myRodsArgs);
+#endif    
+#ifdef ENABLE_TRACE
     // start tracing
-    
     status = trace_begin( NULL );
     if( status != 0 ) {
         rodsLogError(LOG_ERROR, status, "main: trace_begin failed. ");
@@ -335,26 +314,37 @@ irodsOper.flush = irodsFlush;
 
     status = fuse_main (argc, argv, &irodsOper, NULL);
 
-#ifdef _TRACE 
+#ifdef ENABLE_TRACE
     // stop tracing 
     trace_end( NULL );
 #endif
     
-#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
     /* release the preload command line options */
-    releaseUserCreatedCmdLineOpt (argc, argv);
+    releaseCmdLineOpt (argc, argv);
 
-    // wait preload & lazy upload jobs
+#ifdef ENABLE_LAZY_UPLOAD
+    // lazy upload jobs
     waitLazyUploadJobs();
+#endif
+#ifdef ENABLE_PRELOAD
+    // wait preload jobs
     waitPreloadJobs();
+#endif
 
+#ifdef ENABLE_PRELOAD
     // uninitialize preload
     uninitPreload (&MyPreloadConfig);
-    releasePreloadConfig (&MyPreloadConfig);
+    if (MyPreloadConfig.cachePath != NULL) {
+        free(MyPreloadConfig.cachePath);
+    }
+#endif
 
+#ifdef ENABLE_LAZY_UPLOAD
     // uninitialize lazy upload
     uninitLazyUpload (&MyLazyUploadConfig);
-    releaseLazyUploadConfig (&MyLazyUploadConfig);
+    if (MyLazyUploadConfig.bufferPath!=NULL) {
+        free(MyLazyUploadConfig.bufferPath);
+    }
 #endif
 
     disconnectAll ();
@@ -366,45 +356,25 @@ irodsOper.flush = irodsFlush;
     }
 }
 
-int
-parseFuseCmdLineOpt (int argc, char **argv, fuseConfig_t *fuseConfig) {
-    int i;
-    memset(fuseConfig, 0, sizeof(fuseConfig_t));
-
-    for (i=0;i<argc;i++) {
-        if (strcmp("-o", argv[i])==0) {
-            if (i + 2 < argc) {
-                if (strcmp("nonempty", argv[i+1])==0) {
-                    fuseConfig->nonempty = 1;
-                    // do not pass nonempty to fuse -- this will cause crash
-                    argv[i]="-Z";
-                    argv[i+1]="-Z";
-                }
-                if (strcmp("-f", argv[i+1])==0) {
-                    fuseConfig->foreground = 1;
-                    //argv[i]="-Z";
-                    //argv[i+1]="-Z";
-                }
-                if (strcmp("-d", argv[i+1])==0) {
-                    fuseConfig->debug = 1;
-                    //argv[i]="-Z";
-                    //argv[i+1]="-Z";
-                }
-            }
-        }
-    }
-
-    return(0);
-}
-
-#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
 int 
-parsePreloadAndLazyUploadCmdLineOpt (int argc, char **argv, preloadConfig_t *preloadConfig, lazyUploadConfig_t *lazyUploadConfig) {
+parseFuseSpecificCmdLineOpt (int argc, char **argv) {
     int i;
-    memset(preloadConfig, 0, sizeof(preloadConfig_t));
-    memset(lazyUploadConfig, 0, sizeof(lazyUploadConfig_t));
+#ifdef ENABLE_PRELOAD
+    preloadConfig_t* preloadConfig = &MyPreloadConfig;
+#endif
+#ifdef ENABLE_LAZY_UPLOAD
+    lazyUploadConfig_t* lazyUploadConfig = &MyLazyUploadConfig;
+#endif
+
+#ifdef ENABLE_PRELOAD
+    memset(&MyPreloadConfig, 0, sizeof(preloadConfig_t));
+#endif
+#ifdef ENABLE_LAZY_UPLOAD
+    memset(&MyLazyUploadConfig, 0, sizeof(lazyUploadConfig_t));
+#endif
 
     for (i=0;i<argc;i++) {
+#ifdef ENABLE_PRELOAD
         if (strcmp("--preload", argv[i])==0) {
             preloadConfig->preload=True;
             argv[i]="-Z";
@@ -453,6 +423,8 @@ parsePreloadAndLazyUploadCmdLineOpt (int argc, char **argv, preloadConfig_t *pre
                 argv[i+1]="-Z";
             }
         }
+#endif
+#ifdef ENABLE_LAZY_UPLOAD
         if (strcmp("--lazyupload", argv[i])==0) {
             lazyUploadConfig->lazyUpload=True;
             argv[i]="-Z";
@@ -470,50 +442,28 @@ parsePreloadAndLazyUploadCmdLineOpt (int argc, char **argv, preloadConfig_t *pre
                 argv[i+1]="-Z";
             }
         }
+#endif
     }
 
     // set default
+#ifdef ENABLE_PRELOAD
     if(preloadConfig->cachePath == NULL) {
-        rodsLog (LOG_DEBUG, "parsePreloadAndLazyUploadCmdLineOpt: uses default preload cache dir - %s", FUSE_PRELOAD_CACHE_DIR);
+        rodsLog (LOG_DEBUG, "parseFuseSpecificCmdLineOpt: uses default preload cache dir - %s", FUSE_PRELOAD_CACHE_DIR);
         preloadConfig->cachePath=strdup(FUSE_PRELOAD_CACHE_DIR);
     }
 
     if(preloadConfig->preloadMinSize < MAX_READ_CACHE_SIZE) {
         // in this case, given iRODS file is not cached by preload but cached by file cache.
-        rodsLog (LOG_DEBUG, "parsePreloadAndLazyUploadCmdLineOpt: uses default min size %lld - (given %lld)", MAX_READ_CACHE_SIZE, preloadConfig->preloadMinSize);
+        rodsLog (LOG_DEBUG, "parseFuseSpecificCmdLineOpt: uses default min size %lld - (given %lld)", MAX_READ_CACHE_SIZE, preloadConfig->preloadMinSize);
         preloadConfig->preloadMinSize = MAX_READ_CACHE_SIZE;
     }
-
+#endif
+#ifdef ENABLE_LAZY_UPLOAD
     if(lazyUploadConfig->bufferPath == NULL) {
-        rodsLog (LOG_DEBUG, "parsePreloadAndLazyUploadCmdLineOpt: uses default lazy-upload buffer dir - %s", FUSE_LAZY_UPLOAD_BUFFER_DIR);
+        rodsLog (LOG_DEBUG, "parseFuseSpecificCmdLineOpt: uses default lazy-upload buffer dir - %s", FUSE_LAZY_UPLOAD_BUFFER_DIR);
         lazyUploadConfig->bufferPath=strdup(FUSE_LAZY_UPLOAD_BUFFER_DIR);
     }
-
-    return(0);
-}
-
-int
-releasePreloadConfig (preloadConfig_t *preloadConfig) {
-    if (preloadConfig==NULL) {
-        return -1;
-    }
-
-    if (preloadConfig->cachePath!=NULL) {
-        free(preloadConfig->cachePath);
-    }
-
-    return(0);
-}
-
-int
-releaseLazyUploadConfig (lazyUploadConfig_t *lazyUploadConfig) {
-    if (lazyUploadConfig==NULL) {
-        return -1;
-    }
-
-    if (lazyUploadConfig->bufferPath!=NULL) {
-        free(lazyUploadConfig->bufferPath);
-    }
+#endif
 
     return(0);
 }
@@ -524,11 +474,11 @@ makeCleanCmdLineOpt (int argc, char **argv, int *argc2, char ***argv2) {
     int actual_argc = 0;
     int j;
 
-    if (argc2==NULL) {
+    if (argc2 == NULL) {
         return -1;
     }
     
-    if (argv2==NULL) {
+    if (argv2 == NULL) {
         return -1;
     }
 
@@ -538,27 +488,27 @@ makeCleanCmdLineOpt (int argc, char **argv, int *argc2, char ***argv2) {
         }
     }
 
-    *argv2=(char**)malloc(sizeof(char*) * actual_argc);
+    *argv2 = (char**)malloc(sizeof(char*) * actual_argc);
 
-    j=0;
+    j = 0;
     for (i=0;i<argc;i++) {
         if (strcmp("-Z", argv[i])!=0) {
-            (*argv2)[j]=strdup(argv[i]);
+            (*argv2)[j] = strdup(argv[i]);
             j++;
         }
     }
 
-    *argc2=actual_argc;
+    *argc2 = actual_argc;
     return(0);
 }
 
 int
-releaseUserCreatedCmdLineOpt (int argc, char **argv) {
+releaseCmdLineOpt (int argc, char **argv) {
     int i;
     
-    if (argv!=NULL) {
+    if (argv != NULL) {
         for (i=0;i<argc;i++) {
-            if (argv[i]!=NULL) {
+            if (argv[i] != NULL) {
                 free(argv[i]);
             }
         }
@@ -567,29 +517,30 @@ releaseUserCreatedCmdLineOpt (int argc, char **argv) {
     
     return(0);
 }
-#endif
 
 void
 usage ()
 {
    char *msgs[]={
-#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
-   "Usage : irodsFs [-hd] [--preload] [--preload-clear-cache] [--preload-cache-dir dir] [--preload-cache-max maxsize] [--preload-file-min minsize] [--lazyupload] [--lazyupload-buffer-dir dir] [-o opt,[opt...]]",
-#else
    "Usage : irodsFs [-hd] [-o opt,[opt...]]",
-#endif
 "Single user iRODS/Fuse server",
 "Options are:",
 " -h  this help",
 " -d  FUSE debug mode",
 " -o  opt,[opt...]  FUSE mount options",
 
-#ifdef ENABLE_PRELOAD_AND_LAZY_UPLOAD
+#ifdef ENABLE_PRELOAD
+" ",
+"Extended Options for Preload",
 " --preload                use preload",
 " --preload-clear-cache    clear preload caches",
 " --preload-cache-dir      specify preload cache directory",
 " --preload-cache-max      specify preload cache max limit (in bytes)", 
 " --preload-file-min       specify minimum file size that will be preloaded (in bytes)",
+#endif
+#ifdef ENABLE_LAZY_UPLOAD
+" ",
+"Extended Options for LazyUpload",
 " --lazyupload             use lazy-upload",
 " --lazyupload-buffer-dir  specify lazy-upload buffer directory",
 #endif
@@ -597,15 +548,14 @@ usage ()
 ""};
     int i;
     for (i=0;;i++) {
-        if (strlen(msgs[i])==0) return;
-         printf("%s\n",msgs[i]);
+        if (strlen(msgs[i])==0) 
+            break;
+        printf("%s\n",msgs[i]);
     }
     
-#ifdef _TRACE
-   
+#ifdef ENABLE_TRACE
     trace_usage();
-    
-#endif // _TRACE
+#endif // ENABLE_TRACE
 }
 
 

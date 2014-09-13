@@ -10,6 +10,7 @@
 #include "iFuseOper.h"
 #include "hashtable.h"
 #include "miscUtil.h"
+#include "iFuseLib.Preload.h"
 #include "iFuseLib.Lock.h"
 #include "iFuseLib.FSUtils.h"
 #include "getUtil.h"
@@ -40,7 +41,7 @@ static int _findOldestCache(const char *path, char *oldCachePath, struct stat *o
 static int _getCacheWorkPath(const char *path, char *cachePath);
 static int _preparePreloadCacheDir(const char *path);
 static int _removeAllCaches();
-static int _removeAllIncompleteCaches(const char *path);
+static int _removeAllIncompleteCaches();
 static int _removeIncompleteCaches(const char *path);
 static int _renameCache(const char *fromPath, const char *toPath);
 static int _truncateCache(const char *path, off_t size);
@@ -80,7 +81,7 @@ initPreload (preloadConfig_t *preloadConfig, rodsEnv *myPreloadRodsEnv, rodsArgu
         _removeAllCaches();
     } else {
         // remove incomplete preload caches
-        _removeAllIncompleteCaches(preloadConfig->cachePath);
+        _removeAllIncompleteCaches();
     }
 
     return (0);
@@ -88,7 +89,6 @@ initPreload (preloadConfig_t *preloadConfig, rodsEnv *myPreloadRodsEnv, rodsArgu
 
 int
 waitPreloadJobs () {
-    int status;
     int i;
     int size;
 
@@ -101,9 +101,9 @@ waitPreloadJobs () {
             rodsLog (LOG_DEBUG, "waitPreloadJobs: Waiting for a preload job - %s", threadInfo->path);
             UNLOCK(PreloadLock);
 #ifdef USE_BOOST
-            status = threadInfo->thread->join();
+            threadInfo->thread->join();
 #else
-            status = pthread_join(threadInfo->thread, NULL);
+            pthread_join(threadInfo->thread, NULL);
 #endif
         } else {
             UNLOCK(PreloadLock);
@@ -119,7 +119,7 @@ uninitPreload (preloadConfig_t *preloadConfig) {
         _removeAllCaches();
     } else {
         // remove incomplete preload caches
-        _removeAllIncompleteCaches(preloadConfig->cachePath);
+        _removeAllIncompleteCaches();
     }
 
     FREE_LOCK(PreloadLock);
@@ -983,7 +983,7 @@ _removeAllCaches() {
 }
 
 static int
-_removeAllIncompleteCaches(const char *path) {
+_removeAllIncompleteCaches() {
     int status;
 
     if((status = _removeIncompleteCaches(PreloadConfig.cachePath)) < 0) {

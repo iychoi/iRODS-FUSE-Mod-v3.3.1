@@ -62,9 +62,9 @@ LIB_OBJS =	\
         $(objDir)/iFuseLib.FSUtils.o \
         $(objDir)/iFuseLib.Preload.o \
         $(objDir)/iFuseLib.LazyUpload.o \
-		  $(objDir)/iFuseLib.Http.o \
-		  $(objDir)/iFuseLib.Trace.o \
-		  $(objDir)/iFuseLib.Logging.o \
+        $(objDir)/iFuseLib.Http.o \
+        $(objDir)/iFuseLib.Trace.o \
+        $(objDir)/iFuseLib.Logging.o \
 		$(reObjDir)/list.o \
 		$(reObjDir)/hashtable.o \
 		$(reObjDir)/region.o \
@@ -79,6 +79,11 @@ INCLUDES +=	-I$(incDir) -I$(reIncDir)
 # Compile and link flags
 #
 
+# enable/disable extended features
+PRELOAD = 1
+LAZY_UPLOAD = 1
+TRACE = 1
+
 CFLAGS_OPTIONS := -g $(CFLAGS) $(MY_CFLAG)
 ifdef IRODS_FS
 CFLAGS_OPTIONS += -D_REENTRANT
@@ -88,6 +93,16 @@ endif
 ifeq ($(OS_platform), linux_platform)
 INCLUDES += -I$(fuseHomeDir)/include
 endif
+endif
+
+ifdef PRELOAD
+CFLAGS_OPTIONS += -DENABLE_PRELOAD
+endif
+ifdef LAZY_UPLOAD
+CFLAGS_OPTIONS += -DENABLE_LAZY_UPLOAD
+endif
+ifdef TRACE
+CFLAGS_OPTIONS += -DENABLE_TRACE
 endif
 
 CFLAGS =	$(CFLAGS_OPTIONS) $(INCLUDES) $(LIB_INCLUDES) $(SVR_INCLUDES) $(MODULE_CFLAGS)

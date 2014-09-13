@@ -1,12 +1,11 @@
-#ifndef _I_FUSELIB_TRACE_H_
-#define _I_FUSELIB_TRACE_H_
+#ifndef I_FUSELIB_TRACE_H
+#define I_FUSELIB_TRACE_H
 
 // trace wrappers around the irods Fuse operations
-
 #include <sys/statvfs.h>
 
 // don't include if all we're doing is testing the trace functionality
-#ifndef _TEST_TRACE
+#ifndef TEST_TRACE
 #include "rodsClient.h"
 #include "rodsPath.h"
 #include "iFuseLib.h"
@@ -21,7 +20,7 @@ extern "C" {
 #endif
 
 // don't compile these if all we're doing is testing the trace functionality
-#ifndef _TEST_TRACE
+#ifndef TEST_TRACE
 int traced_irodsGetattr(const char *path, struct stat *stbuf);
 int traced_irodsReadlink(const char *path, char *buf, size_t size);
 int traced_irodsMknod(const char *path, mode_t mode, dev_t rdev);

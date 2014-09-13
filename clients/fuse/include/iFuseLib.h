@@ -14,8 +14,6 @@
 #define CACHE_FILE_FOR_NEWLY_CREATED     1
 #endif
 
-#define ENABLE_PRELOAD_AND_LAZY_UPLOAD          1
-
 #define MAX_BUF_CACHE   2
 #define MAX_IFUSE_DESC   512
 #define MAX_READ_CACHE_SIZE   (1024*1024)	/* 1 mb */
@@ -27,8 +25,6 @@
 #define MAX_NEWLY_CREATED_TIME	5	/* in sec */
 
 #define FUSE_CACHE_DIR	"/tmp/fuseCache"
-#define FUSE_PRELOAD_CACHE_DIR  "/tmp/fusePreloadCache"
-#define FUSE_LAZY_UPLOAD_BUFFER_DIR  "/tmp/fuseLazyUploadBuffer"
 
 #define IRODS_FREE		0
 #define IRODS_INUSE	1 
@@ -132,99 +128,6 @@ typedef struct newlyCreatedFile {
 #define FUSE_FILE_CACHE_FREE(c) ((c).desc == NULL && (c).pathCache == NULL)
 
 #define FUSE_FILE_CACHE_EXPIRED(cacheTime, c) (cachedTime - (c).cachedTime  >= MAX_NEWLY_CREATED_TIME)
-
-typedef struct FuseConfig {
-    int nonempty;
-    int foreground;
-    int debug;
-} fuseConfig_t;
-
-typedef struct PreloadConfig {
-    int preload;
-    int clearCache;
-    char *cachePath;
-    rodsLong_t cacheMaxSize; /* 0 means unlimited */
-    rodsLong_t preloadMinSize; /* 0 means "use default" */ 
-} preloadConfig_t;
-
-typedef struct LazyUploadConfig {
-    int lazyUpload;
-    char *bufferPath;
-} lazyUploadConfig_t;
-
-#define PRELOAD_FILES_IN_DOWNLOADING_EXT    ".part"
-#define NUM_PRELOAD_THREAD_HASH_SLOT	201
-#define NUM_LAZYUPLOAD_THREAD_HASH_SLOT	201
-#define NUM_LAZYUPLOAD_FILE_HASH_SLOT   201
-
-typedef struct PreloadThreadInfo {
-#ifdef USE_BOOST
-    boost::thread* thread;
-#else
-    pthread_t thread;
-#endif
-    char *path;
-    int running;
-#ifdef USE_BOOST
-    boost::mutex* mutex;
-#else
-    pthread_mutex_t lock;
-#endif
-} preloadThreadInfo_t;
-
-typedef struct LazyUploadThreadInfo {
-#ifdef USE_BOOST
-    boost::thread* thread;
-#else
-    pthread_t thread;
-#endif
-    char *path;
-    int running;
-#ifdef USE_BOOST
-    boost::mutex* mutex;
-#else
-    pthread_mutex_t lock;
-#endif
-} lazyUploadThreadInfo_t;
-
-#define PRELOAD_THREAD_RUNNING    1
-#define PRELOAD_THREAD_IDLE    0
-#define LAZYUPLOAD_THREAD_RUNNING    1
-#define LAZYUPLOAD_THREAD_IDLE    0
-
-typedef struct LazyUploadFileInfo {
-    char *path;
-    int accmode;
-    int handle;
-#ifdef USE_BOOST
-    boost::mutex* mutex;
-#else
-    pthread_mutex_t lock;
-#endif
-} lazyUploadFileInfo_t;
-
-typedef struct PreloadThreadData {
-    char *path;
-    struct stat stbuf;
-    preloadThreadInfo_t *threadInfo;
-} preloadThreadData_t;
-
-typedef struct LazyUploadThreadData {
-    char *path;
-    lazyUploadThreadInfo_t *threadInfo;
-} lazyUploadThreadData_t;
-
-#define NUM_PRELOAD_FILEHANDLE_HASH_SLOT    201
-
-typedef struct PreloadFileHandleInfo {
-    char *path;
-    int handle;
-#ifdef USE_BOOST
-    boost::mutex* mutex;
-#else
-    pthread_mutex_t lock;
-#endif
-} preloadFileHandleInfo_t;
 
 #ifdef  __cplusplus
 extern "C" {
@@ -339,57 +242,7 @@ renmeLocalPath (char *from, char *to, char *toIrodsPath);
 int	_chkCacheExpire (pathCacheQue_t *pathCacheQue);
 int _matchAndLockPathCache (char *inPath, pathCacheQue_t *pathQueArray, pathCache_t **outPathCache);
 int _iFuseConnInuse (iFuseConn_t *iFuseConn);
-// PRELOAD
-int
-initPreload (preloadConfig_t *preloadConfig, rodsEnv *myRodsEnv, rodsArguments_t *myRodsArgs);
-int
-waitPreloadJobs ();
-int
-uninitPreload (preloadConfig_t *preloadConfig);
-int
-isPreloadEnabled ();
-int
-preloadFile (const char *path, struct stat *stbuf);
-int
-invalidatePreloadedFile (const char *path);
-int
-renamePreloadedFile (const char *fromPath, const char *toPath);
-int
-truncatePreloadedFile (const char *path, off_t size);
-int
-isPreloadedFile (const char *path);
-int
-isFilePreloading (const char *path);
-int
-openPreloadedFile (const char *path);
-int
-readPreloadedFile (int fileDesc, char *buf, size_t size, off_t offset);
-int
-closePreloadedFile (const char *path);
-int
-moveToPreloadedDir (const char *path, const char *iRODSPath);
 
-// lazy-upload
-int
-initLazyUpload (lazyUploadConfig_t *lazyUploadConfig, rodsEnv *myRodsEnv, rodsArguments_t *myRodsArgs);
-int
-waitLazyUploadJobs ();
-int
-uninitLazyUpload (lazyUploadConfig_t *lazyUploadConfig);
-int
-isLazyUploadEnabled ();
-int
-isFileBufferedForLazyUpload (const char *path);
-int
-isBufferedFileUploading (const char *path);
-int
-mknodLazyUploadBufferedFile (const char *path);
-int
-openLazyUploadBufferedFile (const char *path, int accmode);
-int
-writeLazyUploadBufferedFile (const char *path, const char *buf, size_t size, off_t offset);
-int
-closeLazyUploadBufferedFile (const char *path);
 #ifdef  __cplusplus
 }
 #endif

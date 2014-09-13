@@ -9,7 +9,7 @@
 struct log_context* LOGCTX = NULL;
 
 
-#ifndef _TEST_TRACE
+#ifndef TEST_TRACE
 int traced_irodsGetattr(const char *path, struct stat *stbuf) {
    
    char path_hash[LOG_PATH_HASH_LEN];

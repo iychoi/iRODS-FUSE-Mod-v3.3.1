@@ -10,9 +10,15 @@
 #include "iFuseOper.h"
 #include "hashtable.h"
 #include "miscUtil.h"
+#include "iFuseLib.LazyUpload.h"
 #include "iFuseLib.Lock.h"
 #include "iFuseLib.FSUtils.h"
 #include "putUtil.h"
+
+#ifdef ENABLE_PRELOAD
+#include "iFuseLib.Preload.h"
+#endif
+
 
 /**************************************************************************
  * global variables
@@ -519,6 +525,7 @@ _upload (const char *path) {
         return status;
     }
 
+#ifdef ENABLE_PRELOAD
     // move to preload
     LOCK(LazyUploadLock);
     status = moveToPreloadedDir(bufferPath, path);
@@ -529,6 +536,7 @@ _upload (const char *path) {
     }
 
     UNLOCK(LazyUploadLock);
+#endif
     return 0;
 }
 
