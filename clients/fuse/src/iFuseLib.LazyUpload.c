@@ -284,15 +284,15 @@ writeLazyUploadBufferedFile (const char *path, const char *buf, size_t size, off
     }
 
     // TEST
-    if (lazyUploadFileInfo->curOffset > 10*1024*1024) {
-        status = -1;
-        errno = ENOSPC;
-    } else {
-        status = write (lazyUploadFileInfo->localHandle, buf, size);
-    }
+    //if (lazyUploadFileInfo->curOffset > 10*1024*1024) {
+    //    status = -1;
+    //   errno = ENOSPC;
+    //} else {
+    //    status = write (lazyUploadFileInfo->localHandle, buf, size);
+    //}
     // TEST END
 
-    //status = write (lazyUploadFileInfo->localHandle, buf, size);
+    status = write (lazyUploadFileInfo->localHandle, buf, size);
     rodsLog (LOG_DEBUG, "writeLazyUploadBufferedFile: write to opened lazy-upload Buffered file - %d", lazyUploadFileInfo->localHandle);
 
     if (status < 0) {
