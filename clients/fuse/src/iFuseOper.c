@@ -303,7 +303,7 @@ irodsMknod (const char *path, mode_t mode, dev_t rdev)
 
 #ifdef ENABLE_LAZY_UPLOAD
     if (isLazyUploadEnabled() == 0) {
-        if (isFileBufferedForLazyUpload (path) >= 0 || isBufferedFileUploading (path) >= 0) {
+        if (isFileLazyUploading (path) >= 0) {
             rodsLog (LOG_DEBUG, "irodsMknod: %s is uploading", path);
             return -EBUSY;
         }
@@ -448,7 +448,7 @@ irodsUnlink (const char *path)
 
 #ifdef ENABLE_LAZY_UPLOAD
     if (isLazyUploadEnabled() == 0) {
-        if (isFileBufferedForLazyUpload (path) >= 0 || isBufferedFileUploading (path) >= 0) {
+        if (isFileLazyUploading (path) >= 0) {
             rodsLog (LOG_DEBUG, "irodsUnlink: %s is uploading", path);
             return -EBUSY;
         }
@@ -649,12 +649,12 @@ irodsRename (const char *from, const char *to)
 
 #ifdef ENABLE_LAZY_UPLOAD
     if (isLazyUploadEnabled() == 0) {
-        if (isFileBufferedForLazyUpload (from) >= 0 || isBufferedFileUploading (from) >= 0) {
+        if (isFileLazyUploading (from) >= 0) {
             rodsLog (LOG_DEBUG, "irodsRename: %s is uploading", from);
             return -EBUSY;
         }
 
-        if (isFileBufferedForLazyUpload (to) >= 0 || isBufferedFileUploading (to) >= 0) {
+        if (isFileLazyUploading (to) >= 0) {
             rodsLog (LOG_DEBUG, "irodsRename: %s is uploading", to);
             return -EBUSY;
         }    
@@ -765,7 +765,7 @@ irodsChmod (const char *path, mode_t mode)
 
 #ifdef ENABLE_LAZY_UPLOAD
     if (isLazyUploadEnabled() == 0) {
-        if (isFileBufferedForLazyUpload (path) >= 0 || isBufferedFileUploading (path) >= 0) {
+        if (isFileLazyUploading (path) >= 0) {
             rodsLog (LOG_DEBUG, "irodsChmod: %s is uploading", path);
             return -EBUSY;
         }    
@@ -866,7 +866,7 @@ irodsTruncate (const char *path, off_t size)
 
 #ifdef ENABLE_LAZY_UPLOAD
     if (isLazyUploadEnabled() == 0) {
-        if (isFileBufferedForLazyUpload (path) >= 0 || isBufferedFileUploading (path) >= 0) {
+        if (isFileLazyUploading (path) >= 0) {
             rodsLog (LOG_DEBUG, "irodsTruncate: %s is uploading", path);
             return -EBUSY;
         }    
@@ -948,6 +948,11 @@ int
 irodsFlush (const char *path, struct fuse_file_info *fi)
 {
     rodsLog (LOG_DEBUG, "irodsFlush: %s", path);
+#ifdef ENABLE_LAZY_UPLOAD
+    if (isLazyUploadEnabled() == 0 && isFileLazyUploading (path) >= 0) {
+        syncLazyUploadBufferedFile (path, fi);
+    }
+#endif
     return (0);
 }
 
@@ -979,7 +984,7 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
 
 #ifdef ENABLE_LAZY_UPLOAD
     if (isLazyUploadEnabled() == 0) {
-        if (isBufferedFileUploading (path) >= 0) {
+        if (isFileLazyUploading (path) >= 0) {
             rodsLog (LOG_DEBUG, "irodsOpen: %s is uploading", path);
             return -EBUSY;
         }
@@ -1017,7 +1022,7 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
                 UNLOCK_STRUCT(*(tmpPathCache->fileCache));
                 UNLOCK_STRUCT(*tmpPathCache);
 
-#if defined(ENABLE_PRELOAD) || defined(ENABLE_LAZYUPLOAD)
+#if defined(ENABLE_PRELOAD) || defined(ENABLE_LAZY_UPLOAD)
                 if ((flags & O_ACCMODE) == O_WRONLY || (flags & O_ACCMODE) == O_RDWR) {
 #ifdef ENABLE_PRELOAD
                     if (isPreloadEnabled() == 0 && isPreloadedFile (path) >= 0) {
@@ -1025,7 +1030,7 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
                         invalidatePreloadedFile(path);
                     }
 #endif
-#ifdef ENABLE_LAZYUPLOAD
+#ifdef ENABLE_LAZY_UPLOAD
                     if ((flags & O_ACCMODE) == O_WRONLY) {
                         // lazy-upload
                         if (isLazyUploadEnabled() == 0 && openLazyUploadBufferedFile(path, flags) > 0) {
@@ -1210,8 +1215,8 @@ struct fuse_file_info *fi)
 #ifdef ENABLE_LAZY_UPLOAD
     // check local cache
     rodsLog (LOG_DEBUG, "irodsWrite: write %s, o:%ld, l:%ld\n", path, offset, size);
-    if (isLazyUploadEnabled() == 0 && isFileBufferedForLazyUpload (path) >= 0) {
-        status = writeLazyUploadBufferedFile (path, buf, size, offset);
+    if (isLazyUploadEnabled() == 0 && isFileLazyUploading (path) >= 0) {
+        status = writeLazyUploadBufferedFile (path, buf, size, offset, fi);
         return status;
     }
 #endif
@@ -1261,14 +1266,6 @@ irodsRelease (const char *path, struct fuse_file_info *fi)
 
     rodsLog (LOG_DEBUG, "irodsRelease: %s", path);
 
-    descInx = fi->fh;
-
-    /* if (checkFuseDesc (descInx) < 0) {
-        return -EBADF;
-    } */
-
-    status = ifuseClose (&IFuseDesc[descInx]);
-
 #ifdef ENABLE_PRELOAD
     // check local cache
     if (isPreloadEnabled() == 0 && isPreloadedFile (path) >= 0) {
@@ -1276,24 +1273,20 @@ irodsRelease (const char *path, struct fuse_file_info *fi)
         closePreloadedFile (path);
     }
 #endif
-#ifdef ENABLE_LAZYUPLOAD
-    if (isLazyUploadEnabled() == 0 && isFileBufferedForLazyUpload (path) >= 0) {
-#ifdef CACHE_FUSE_PATH
-        // clear path
-        // clear PathCache here because next operation will be very slow
-        clearPathFromCache((char *)path);
-#endif
-
+#ifdef ENABLE_LAZY_UPLOAD
+    if (isLazyUploadEnabled() == 0 && isFileLazyUploading (path) >= 0) {
         rodsLog (LOG_DEBUG, "irodsRelease: %s", path);
         closeLazyUploadBufferedFile (path);
-
-#ifdef CACHE_FUSE_PATH
-        // clear path
-        // do it again
-        clearPathFromCache((char *)path);
-#endif
     }
 #endif
+
+    descInx = fi->fh;
+
+    /* if (checkFuseDesc (descInx) < 0) {
+        return -EBADF;
+    } */
+
+    status = ifuseClose (&IFuseDesc[descInx]);
 
     if (status < 0) {
         if ((myError = getErrno (status)) > 0) {
@@ -1310,6 +1303,11 @@ int
 irodsFsync (const char *path, int isdatasync, struct fuse_file_info *fi)
 {
     rodsLog (LOG_DEBUG, "irodsFsync: %s", path);
+#ifdef ENABLE_LAZY_UPLOAD
+    if (isLazyUploadEnabled() == 0 && isFileLazyUploading (path) >= 0) {
+        syncLazyUploadBufferedFile (path, fi);
+    }
+#endif
     return (0);
 }
 

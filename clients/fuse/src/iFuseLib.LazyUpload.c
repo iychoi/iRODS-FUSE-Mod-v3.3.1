@@ -15,11 +15,6 @@
 #include "iFuseLib.FSUtils.h"
 #include "putUtil.h"
 
-#ifdef ENABLE_PRELOAD
-#include "iFuseLib.Preload.h"
-#endif
-
-
 /**************************************************************************
  * global variables
  **************************************************************************/
@@ -27,22 +22,20 @@ static lazyUploadConfig_t LazyUploadConfig;
 static rodsEnv *LazyUploadRodsEnv;
 static rodsArguments_t *LazyUploadRodsArgs;
 
-static concurrentList_t *LazyUploadThreadList;
-static Hashtable *LazyUploadThreadTable;
-
 static Hashtable *LazyUploadBufferedFileTable_Created;
 static Hashtable *LazyUploadBufferedFileTable_Opened;
 
 /**************************************************************************
  * function definitions
  **************************************************************************/
-static void *_lazyUploadThread(void *arg);
-static int _upload(const char *path);
 static int _prepareBufferDir(const char *path);
 static int _getBufferPath(const char *path, char *bufferPath);
-static int _hasBufferedFile(const char *path);
 static int _removeAllBufferedFiles();
 static int _getiRODSPath(const char *path, char *iRODSPath);
+static int _isLazyUploadFile(const char *path);
+static int _commitLocalBuffer(const char *path, struct fuse_file_info *fi, lazyUploadFileInfo_t *lazyUploadFileInfo);
+static int _upload(const char *path);
+
 
 /**************************************************************************
  * public functions
@@ -59,12 +52,8 @@ initLazyUpload (lazyUploadConfig_t *lazyUploadConfig, rodsEnv *myLazyUploadRodsE
     LazyUploadRodsArgs = myLazyUploadRodsArgs;
 
     // init hashtables
-    LazyUploadThreadTable = newHashTable(NUM_LAZYUPLOAD_THREAD_HASH_SLOT);
     LazyUploadBufferedFileTable_Created = newHashTable(NUM_LAZYUPLOAD_FILE_HASH_SLOT);
     LazyUploadBufferedFileTable_Opened = newHashTable(NUM_LAZYUPLOAD_FILE_HASH_SLOT);
-
-    // init lists
-    LazyUploadThreadList = newConcurrentList();
 
     // init lock
     INIT_LOCK(LazyUploadLock);
@@ -75,32 +64,6 @@ initLazyUpload (lazyUploadConfig_t *lazyUploadConfig, rodsEnv *myLazyUploadRodsE
     _removeAllBufferedFiles();
 
     return (0);
-}
-
-int
-waitLazyUploadJobs () {
-    int status;
-    int i;
-    int size;
-
-    // destroy lazy-upload thread list
-    size = listSize(LazyUploadThreadList);
-    for(i=0;i<size;i++) {
-        LOCK(LazyUploadLock);
-        lazyUploadThreadInfo_t *threadInfo = (lazyUploadThreadInfo_t *)removeFirstElementOfConcurrentList(LazyUploadThreadList);
-        if(threadInfo != NULL) {
-            rodsLog (LOG_DEBUG, "uninitLazyUpload: Waiting for a lazy-upload job - %s", threadInfo->path);
-            UNLOCK(LazyUploadLock);
-#ifdef USE_BOOST
-            status = threadInfo->thread->join();
-#else
-            status = pthread_join(threadInfo->thread, NULL);
-#endif
-        } else {
-            UNLOCK(LazyUploadLock);
-        }
-    }
-    return 0;
 }
 
 int
@@ -122,49 +85,23 @@ isLazyUploadEnabled() {
 }
 
 int
-isFileBufferedForLazyUpload (const char *path) {
+isFileLazyUploading (const char *path) {
     int status;
     char iRODSPath[MAX_NAME_LEN];
 
     status = _getiRODSPath(path, iRODSPath);
     if(status < 0) {
-        rodsLog (LOG_DEBUG, "isFileBufferedForLazyUpload: failed to get iRODS path - %s", path);
+        rodsLog (LOG_DEBUG, "isFileLazyUploading: failed to get iRODS path - %s", path);
         return status;
     }
 
     LOCK(LazyUploadLock);
 
-    status = _hasBufferedFile(iRODSPath);
+    status = _isLazyUploadFile(iRODSPath);
 
     UNLOCK(LazyUploadLock);
 
     return status;
-}
-
-int
-isBufferedFileUploading(const char *path) {
-    int status;
-    lazyUploadThreadInfo_t *threadInfo = NULL;
-    char iRODSPath[MAX_NAME_LEN];
-
-    // convert input path to iRODSPath
-    status = _getiRODSPath(path, iRODSPath);
-    if(status < 0) {
-        rodsLog (LOG_DEBUG, "isBufferedFileUploading: failed to get iRODS path - %s", path);
-        return status;
-    }
-
-    LOCK(LazyUploadLock);
-
-    // check the given file is lazy uploading
-    threadInfo = (lazyUploadThreadInfo_t *)lookupFromHashTable(LazyUploadThreadTable, iRODSPath);
-    if(threadInfo != NULL) {
-        UNLOCK(LazyUploadLock);
-        return 0;
-    }
-
-    UNLOCK(LazyUploadLock);
-    return -1;
 }
 
 int
@@ -200,8 +137,11 @@ mknodLazyUploadBufferedFile(const char *path) {
     // add to hash table
     lazyUploadFileInfo = (lazyUploadFileInfo_t *)malloc(sizeof(lazyUploadFileInfo_t));
     lazyUploadFileInfo->path = strdup(iRODSPath);
-    lazyUploadFileInfo->handle = -1; // clear
     lazyUploadFileInfo->accmode = 0; // clear
+    lazyUploadFileInfo->localHandle = -1; // clear
+    lazyUploadFileInfo->commitCount = 0; // clear
+    lazyUploadFileInfo->curLocalOffsetStart = 0; // clear
+    lazyUploadFileInfo->curOffset = 0; // clear
     INIT_STRUCT_LOCK((*lazyUploadFileInfo));
 
     insertIntoHashTable(LazyUploadBufferedFileTable_Created, iRODSPath, lazyUploadFileInfo);
@@ -248,7 +188,7 @@ openLazyUploadBufferedFile(const char *path, int accmode) {
     lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadBufferedFileTable_Created, iRODSPath);
     if(lazyUploadFileInfo != NULL) {
         // has lazy upload file handle opened
-        if(lazyUploadFileInfo->handle > 0) {
+        if(lazyUploadFileInfo->localHandle > 0) {
             rodsLog (LOG_DEBUG, "openLazyUploadBufferedFile: same file is already opened for lazy-upload - %s", iRODSPath);
             UNLOCK(LazyUploadLock);
             return -EMFILE;
@@ -257,8 +197,8 @@ openLazyUploadBufferedFile(const char *path, int accmode) {
             desc = open (bufferPath, O_RDWR|O_CREAT|O_TRUNC, 0755);
 
             if(desc > 0) {
-                lazyUploadFileInfo->handle = desc;
                 lazyUploadFileInfo->accmode = accmode;
+                lazyUploadFileInfo->localHandle = desc;
                 rodsLog (LOG_DEBUG, "openLazyUploadBufferedFile: opens a file handle - %s", iRODSPath);
 
                 // move to opened hashtable
@@ -278,12 +218,11 @@ openLazyUploadBufferedFile(const char *path, int accmode) {
 }
 
 int
-writeLazyUploadBufferedFile (const char *path, const char *buf, size_t size, off_t offset) {
+writeLazyUploadBufferedFile (const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi) {
     int status;
     lazyUploadFileInfo_t *lazyUploadFileInfo = NULL;
     char iRODSPath[MAX_NAME_LEN];
     char bufferPath[MAX_NAME_LEN];
-    int desc;
     off_t seek_status;
 
     // convert input path to iRODSPath
@@ -301,16 +240,12 @@ writeLazyUploadBufferedFile (const char *path, const char *buf, size_t size, off
 
     LOCK(LazyUploadLock);
 
-    desc = -1;
-
     // check the given file is Buffered
     lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadBufferedFileTable_Opened, iRODSPath);
     if(lazyUploadFileInfo != NULL) {
         // has lazy upload file handle opened
-        if(lazyUploadFileInfo->handle > 0) {
-            desc = lazyUploadFileInfo->handle;
-        } else {
-            rodsLog (LOG_DEBUG, "writeLazyUploadBufferedFile: wrong file descriptor - %s, %d", iRODSPath, lazyUploadFileInfo->handle);
+        if(lazyUploadFileInfo->localHandle < 0) {
+            rodsLog (LOG_DEBUG, "writeLazyUploadBufferedFile: wrong file descriptor - %s, %d", iRODSPath, lazyUploadFileInfo->localHandle);
             UNLOCK(LazyUploadLock);
             return -EBADF;
         }
@@ -320,17 +255,65 @@ writeLazyUploadBufferedFile (const char *path, const char *buf, size_t size, off
         return -EBADF;
     }
 
-    seek_status = lseek (desc, offset, SEEK_SET);
+    if(offset - lazyUploadFileInfo->curLocalOffsetStart < 0) {
+        // backward?
+        // commit local buffered data
+        status = _commitLocalBuffer(path, fi, lazyUploadFileInfo);
+        if(status < 0) {
+            rodsLog (LOG_DEBUG, "writeLazyUploadBufferedFile: failed to commit local buffered data - %s", iRODSPath);
+            UNLOCK(LazyUploadLock);
+            return status; 
+        }
+
+        // rewrite directly to iRODS
+        status = _ifuseWrite (&IFuseDesc[fi->fh], (char *)buf, size, offset);
+        unlockDesc (fi->fh);
+        return status;
+    }
+
+    // try to write to local buffer
+    seek_status = lseek (lazyUploadFileInfo->localHandle, offset - lazyUploadFileInfo->curLocalOffsetStart, SEEK_SET);
     if (seek_status != offset) {
         status = (int)seek_status;
-        rodsLog (LOG_DEBUG, "writeLazyUploadBufferedFile: failed to seek file desc - %d, %ld -> %ld", desc, offset, seek_status);
-
+        rodsLog (LOG_DEBUG, "writeLazyUploadBufferedFile: failed to seek file desc - %d, %ld -> %ld", lazyUploadFileInfo->localHandle, offset - lazyUploadFileInfo->curLocalOffsetStart, seek_status);
         UNLOCK(LazyUploadLock);
         return status;
     }
 
-    status = write (desc, buf, size);
-    rodsLog (LOG_DEBUG, "writeLazyUploadBufferedFile: write to opened lazy-upload Buffered file - %d", desc);
+    status = write (lazyUploadFileInfo->localHandle, buf, size);
+    rodsLog (LOG_DEBUG, "writeLazyUploadBufferedFile: write to opened lazy-upload Buffered file - %d", lazyUploadFileInfo->localHandle);
+
+    if (status < 0) {
+        // no space?
+        if (errno == ENOSPC) {
+            // handle no space
+            // mode switch
+            status = _commitLocalBuffer(path, fi, lazyUploadFileInfo);
+            if(status < 0) {
+                rodsLog (LOG_DEBUG, "writeLazyUploadBufferedFile: failed to change to appending mode - %s", iRODSPath);
+                UNLOCK(LazyUploadLock);
+                return status; 
+            }
+
+            // write to local buffer again
+            seek_status = lseek (lazyUploadFileInfo->localHandle, offset - lazyUploadFileInfo->curLocalOffsetStart, SEEK_SET);
+            if (seek_status != offset) {
+                status = (int)seek_status;
+                rodsLog (LOG_DEBUG, "writeLazyUploadBufferedFile: failed to seek file desc - %d, %ld -> %ld", lazyUploadFileInfo->localHandle, offset - lazyUploadFileInfo->curLocalOffsetStart, seek_status);
+                UNLOCK(LazyUploadLock);
+                return status;
+            }
+
+            status = write (lazyUploadFileInfo->localHandle, buf, size);
+            rodsLog (LOG_DEBUG, "writeLazyUploadBufferedFile: write to opened lazy-upload Buffered file - %d", lazyUploadFileInfo->localHandle);
+
+            if(status >= 0) {
+                lazyUploadFileInfo->curOffset += status;
+            }
+        }
+    } else {
+        lazyUploadFileInfo->curOffset += status;
+    }
 
     UNLOCK(LazyUploadLock);
 
@@ -338,10 +321,38 @@ writeLazyUploadBufferedFile (const char *path, const char *buf, size_t size, off
 }
 
 int
+syncLazyUploadBufferedFile (const char *path, struct fuse_file_info *fi) {
+    int status;
+    char iRODSPath[MAX_NAME_LEN];
+    lazyUploadFileInfo_t *lazyUploadFileInfo = NULL;
+
+    // convert input path to iRODSPath
+    status = _getiRODSPath(path, iRODSPath);
+    if(status < 0) {
+        rodsLog (LOG_DEBUG, "syncLazyUploadBufferedFile: failed to get iRODS path - %s", path);
+        return status;
+    }
+
+    LOCK(LazyUploadLock);
+
+    lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadBufferedFileTable_Opened, iRODSPath);
+    if(lazyUploadFileInfo != NULL) {
+        // has lazy-upload file handle opened
+        status = _commitLocalBuffer(path, fi, lazyUploadFileInfo);
+        if(status < 0) {
+            rodsLog (LOG_DEBUG, "syncLazyUploadBufferedFile: failed to commit local buffer - %s", iRODSPath);
+            UNLOCK(LazyUploadLock);
+            return status; 
+        }
+    }
+    
+    UNLOCK(LazyUploadLock);
+    return status;
+}
+
+int
 closeLazyUploadBufferedFile (const char *path) {
     int status;
-    lazyUploadThreadInfo_t *threadInfo = NULL;
-    lazyUploadThreadData_t *threadData = NULL;
     char iRODSPath[MAX_NAME_LEN];
     lazyUploadFileInfo_t *lazyUploadFileInfo = NULL;
 
@@ -357,40 +368,19 @@ closeLazyUploadBufferedFile (const char *path) {
     lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadBufferedFileTable_Opened, iRODSPath);
     if(lazyUploadFileInfo != NULL) {
         // has lazy-upload file handle opened
-        if(lazyUploadFileInfo->handle > 0) {
-            fsync(lazyUploadFileInfo->handle);
-            close(lazyUploadFileInfo->handle);
-            lazyUploadFileInfo->handle = -1;
+        if(lazyUploadFileInfo->localHandle > 0) {
+            close(lazyUploadFileInfo->localHandle);
+            lazyUploadFileInfo->localHandle = -1;
             rodsLog (LOG_DEBUG, "closeLazyUploadBufferedFile: close lazy-upload Buffered file handle - %s", iRODSPath);
         }
-
-        // create a new thread to upload
-        threadInfo = (lazyUploadThreadInfo_t *)malloc(sizeof(lazyUploadThreadInfo_t));
-        threadInfo->path = strdup(iRODSPath);
-        threadInfo->running = LAZYUPLOAD_THREAD_RUNNING;
-        INIT_STRUCT_LOCK((*threadInfo));
-
-        deleteFromHashTable(LazyUploadBufferedFileTable_Opened, iRODSPath);
-        deleteFromHashTable(LazyUploadBufferedFileTable_Created, iRODSPath);
-        addToConcurrentList(LazyUploadThreadList, threadInfo);
-        insertIntoHashTable(LazyUploadThreadTable, iRODSPath, threadInfo);
-
-        // prepare thread argument
-        threadData = (lazyUploadThreadData_t *)malloc(sizeof(lazyUploadThreadData_t));
-        threadData->path = strdup(iRODSPath);
-        threadData->threadInfo = threadInfo;
-
-        rodsLog (LOG_DEBUG, "closeLazyUploadBufferedFile: start uploading - %s", iRODSPath);
-#ifdef USE_BOOST
-        status = threadInfo->thread = new boost::thread(_lazyUploadThread, (void *)threadData);
-#else
-        status = pthread_create(&threadInfo->thread, NULL, _lazyUploadThread, (void *)threadData);
-#endif        
 
         if(lazyUploadFileInfo->path != NULL) {
             free(lazyUploadFileInfo->path);
             lazyUploadFileInfo->path = NULL;
         }
+
+        deleteFromHashTable(LazyUploadBufferedFileTable_Opened, iRODSPath);
+        free(lazyUploadFileInfo);
     }
     
     UNLOCK(LazyUploadLock);
@@ -400,56 +390,184 @@ closeLazyUploadBufferedFile (const char *path) {
 /**************************************************************************
  * private functions
  **************************************************************************/
-static void *_lazyUploadThread(void *arg) {
+static int
+_commitLocalBuffer(const char *path, struct fuse_file_info *fi, lazyUploadFileInfo_t *lazyUploadFileInfo) {
     int status;
-    lazyUploadThreadData_t *threadData = (lazyUploadThreadData_t *)arg;
-    lazyUploadThreadInfo_t *threadInfo = NULL;
+    int desc;
+    char iRODSPath[MAX_NAME_LEN];
+    char bufferPath[MAX_NAME_LEN];
 
-    if(threadData == NULL) {
-        rodsLog (LOG_DEBUG, "_lazyUploadThread: given thread argument is null");
-        pthread_exit(NULL);
+    // convert input path to iRODSPath
+    status = _getiRODSPath(path, iRODSPath);
+    if(status < 0) {
+        rodsLog (LOG_DEBUG, "_commitLocalBuffer: failed to get iRODS path - %s", path);
+        return status;
     }
 
-    threadInfo = threadData->threadInfo;
+    status = _getBufferPath(path, bufferPath);
+    if(status < 0) {
+        rodsLog (LOG_DEBUG, "_upload: failed to get Buffered lazy upload file path - %s", path);
+        return status;
+    }
 
-    rodsLog (LOG_DEBUG, "_lazyUploadThread: upload - %s", threadData->path);
+    // close local buffer file handle
+    if(lazyUploadFileInfo->localHandle < 0) {
+        rodsLog (LOG_DEBUG, "_commitLocalBuffer: wrong file descriptor - %s, %d", iRODSPath, lazyUploadFileInfo->localHandle);
+        return -EBADF;
+    }
+
+    // no write but requested flush
+    if(lazyUploadFileInfo->curOffset == 0) {
+        return 0;        
+    }
+
+    fsync(lazyUploadFileInfo->localHandle);
+    close(lazyUploadFileInfo->localHandle);
+    lazyUploadFileInfo->localHandle = -1;
+
+    rodsLog (LOG_DEBUG, "_commitLocalBuffer: upload - %s", iRODSPath);
     
-    status = _upload(threadData->path);
-    if(status != 0) {
-        rodsLog (LOG_DEBUG, "_lazyUploadThread: upload error - %d", status);
-    }
+    if(lazyUploadFileInfo->commitCount == 0) {
+        // put and reopen iRODS file
+        dataObjInp_t dataObjInp;
+        int fd;
+        pathCache_t *tmpPathCache = NULL;
+        iFuseConn_t *iFuseConn = NULL;
+        iFuseDesc_t *desc = NULL;
+        struct stat stbuf;
+        char objPath[MAX_NAME_LEN];
 
-    // uploading is done
-    LOCK(LazyUploadLock);
-
-    // change thread status
-    LOCK_STRUCT(*threadInfo);
-    threadInfo->running = LAZYUPLOAD_THREAD_IDLE;
-    UNLOCK_STRUCT(*threadInfo);
-
-    // release threadData
-    rodsLog (LOG_DEBUG, "_lazyUploadThread: thread finished - %s", threadData->path);
-    if(threadData->path != NULL) {
-        free(threadData->path);
-        threadData->path = NULL;
-    }
-
-    free(threadData);
-
-    // remove from hash table
-    removeFromConcurrentList2(LazyUploadThreadList, threadInfo);
-    deleteFromHashTable(LazyUploadThreadTable, threadInfo->path);
-
-    if(threadInfo != NULL) {
-        if(threadInfo->path != NULL) {
-            free(threadInfo->path);
-            threadInfo->path = NULL;
+        status = ifuseClose (&IFuseDesc[fi->fh]);
+        clearPathFromCache((char *)path);
+        if (status < 0) {
+            int myError;
+            if ((myError = getErrno (status)) > 0) {
+                return (-myError);
+            } else {
+                return -ENOENT;
+            }
         }
-        free(threadInfo);
+
+        // put
+        status = _upload(iRODSPath);
+        if(status != 0) {
+            rodsLog (LOG_DEBUG, "_commitLocalBuffer: upload error - %s, %d", iRODSPath, status);
+            return status;
+        }
+
+        // reopen file
+        memset (&dataObjInp, 0, sizeof (dataObjInp));
+        dataObjInp.openFlags = lazyUploadFileInfo->accmode;
+
+        status = parseRodsPathStr ((char *) (path + 1) , LazyUploadRodsEnv, objPath);
+        rstrcpy(dataObjInp.objPath, objPath, MAX_NAME_LEN);
+        if (status < 0) {
+            rodsLogError (LOG_ERROR, status, "_commitLocalBuffer: parseRodsPathStr of %s error", path);
+            /* use ENOTDIR for this type of error */
+            return -ENOTDIR;
+        }
+
+        iFuseConn = getAndUseConnByPath((char *) path, LazyUploadRodsEnv, &status);
+        /* status = getAndUseIFuseConn(&iFuseConn, &MyRodsEnv); */
+        if(status < 0) {
+            rodsLogError (LOG_ERROR, status, "_commitLocalBuffer: cannot get connection for %s error", path);
+            /* use ENOTDIR for this type of error */
+            return -ENOTDIR;
+        }
+
+        status = _irodsGetattr (iFuseConn, path, &stbuf);
+
+        fd = rcDataObjOpen (iFuseConn->conn, &dataObjInp);
+        unuseIFuseConn (iFuseConn);
+
+        if (fd < 0) {
+            rodsLogError (LOG_ERROR, status, "_commitLocalBuffer: rcDataObjOpen of %s error, status = %d", path, fd);
+            return -ENOENT;
+        }
+
+        fileCache_t *fileCache = addFileCache(fd, objPath, (char *) path, NULL, stbuf.st_mode, stbuf.st_size, NO_FILE_CACHE);
+        matchAndLockPathCache((char *) path, &tmpPathCache);
+        if(tmpPathCache == NULL) {
+            pathExist((char *) path, fileCache, &stbuf, NULL);
+        } else {
+            _addFileCacheForPath(tmpPathCache, fileCache);
+            UNLOCK_STRUCT(*tmpPathCache);
+        }
+
+        desc = newIFuseDesc (objPath, (char *) path, fileCache, &status);
+        if (desc == NULL) {
+            rodsLogError (LOG_ERROR, status, "_commitLocalBuffer: allocIFuseDesc of %s error", path);
+            return -ENOENT;
+        }
+
+        fi->fh = desc->index;
+
+    } else {
+        // append
+        int localDesc = open (bufferPath, O_RDONLY, 0755);
+        char *buffer = (char*)malloc(FUSE_LAZY_UPLOAD_MEM_BUFFER_SIZE);
+        int grandTotalReadLen = 0;
+
+        if(localDesc < 0) {
+            rodsLog (LOG_DEBUG, "_commitLocalBuffer: file descriptor error - %s, %d", iRODSPath, localDesc);
+            return -ENOENT;
+        }
+
+        if (checkFuseDesc (fi->fh) < 0) {
+            return -EBADF;
+        }
+
+        status = 0;
+        while(grandTotalReadLen < lazyUploadFileInfo->curOffset) {
+            int totalReadLen = 0;
+            int totalWriteLen = 0;
+
+            while(totalReadLen < FUSE_LAZY_UPLOAD_MEM_BUFFER_SIZE) {
+                int readLen = read(localDesc, buffer + totalReadLen, FUSE_LAZY_UPLOAD_MEM_BUFFER_SIZE - totalReadLen);
+                if(readLen > 0) {
+                    totalReadLen += readLen;
+                } else if(readLen == 0) {
+                    // EOF
+                    break;
+                } else if(readLen < 0) {
+                    rodsLog (LOG_DEBUG, "_commitLocalBuffer: buffered file read error - %s, %d", iRODSPath, localDesc);
+                    status = getErrno (readLen);
+                    break;
+                }
+            }
+
+            if(status >= 0) {
+                while(totalWriteLen < totalReadLen) {
+                    int writeLen = _ifuseWrite (&IFuseDesc[fi->fh], buffer + totalWriteLen, totalReadLen - totalWriteLen, lazyUploadFileInfo->curLocalOffsetStart + totalWriteLen);
+                    if(writeLen > 0) {
+                        totalWriteLen += writeLen;
+                    } else if(writeLen == 0) {
+                        // EOF
+                        break;
+                    } else if(writeLen < 0) {
+                        rodsLog (LOG_DEBUG, "_commitLocalBuffer: iRODS file write error - %s", iRODSPath);
+                        status = getErrno (writeLen);
+                        break;
+                    }
+                }
+            }
+
+            grandTotalReadLen += totalReadLen;
+        }
+
+        unlockDesc (fi->fh);
+
+        free(buffer);
+        close(localDesc);
     }
 
-    UNLOCK(LazyUploadLock);
-    pthread_exit(NULL);
+    // reset local buffer file
+    desc = open (bufferPath, O_RDWR|O_CREAT|O_TRUNC, 0755);
+    lazyUploadFileInfo->localHandle = desc;
+    lazyUploadFileInfo->commitCount++;
+    lazyUploadFileInfo->curLocalOffsetStart += lazyUploadFileInfo->curOffset;
+    lazyUploadFileInfo->curOffset = 0;
+    return (0);
 }
 
 static int
@@ -525,46 +643,21 @@ _upload (const char *path) {
         return status;
     }
 
-#ifdef ENABLE_PRELOAD
-    // move to preload
-    LOCK(LazyUploadLock);
-    status = moveToPreloadedDir(bufferPath, path);
-    if(status < 0) {
-        rodsLog (LOG_DEBUG, "_upload: moveToPreloadedDir error : %d", status);
-        UNLOCK(LazyUploadLock);
-        return status;
-    }
-
-    UNLOCK(LazyUploadLock);
-#endif
     return 0;
 }
 
 static int
-_hasBufferedFile(const char *path) {
-    int status;
-    char bufferPath[MAX_NAME_LEN];
-    struct stat stbufCache;
+_isLazyUploadFile(const char *path) {
     lazyUploadFileInfo_t *lazyUploadFileInfo = NULL;
 
     if (path == NULL) {
-        rodsLog (LOG_DEBUG, "_hasBufferedFile: input inPath is NULL");
+        rodsLog (LOG_DEBUG, "_isLazyUploadFile: input inPath is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
-    }
-
-	if ((status = _getBufferPath(path, bufferPath)) < 0) {
-        rodsLog (LOG_DEBUG, "_hasBufferedFile: _getBufferPath error : %d", status);
-        return status;
     }
 
     lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadBufferedFileTable_Opened, (char *) path);
     if (lazyUploadFileInfo == NULL) {
         return -1;
-    }
-
-    if ((status = stat(bufferPath, &stbufCache)) < 0) {
-        //rodsLog (LOG_DEBUG, status, "_hasBufferedFile: stat error");
-        return status;
     }
 
     return (0);

@@ -445,7 +445,6 @@ closePreloadedFile (const char *path) {
     int status;
     char iRODSPath[MAX_NAME_LEN];
     preloadFileHandleInfo_t *preloadFileHandleInfo = NULL;
-    preloadFileHandleInfo_t *tmpPreloadFileHandleInfo = NULL;
 
     status = _getiRODSPath(path, iRODSPath);
     if(status < 0) {
@@ -470,10 +469,8 @@ closePreloadedFile (const char *path) {
         }
     
         // remove from hash table
-        tmpPreloadFileHandleInfo = (preloadFileHandleInfo_t *)deleteFromHashTable(PreloadFileHandleTable, iRODSPath);
-        if(tmpPreloadFileHandleInfo != NULL) {
-            free(tmpPreloadFileHandleInfo);
-        }
+        deleteFromHashTable(PreloadFileHandleTable, iRODSPath);
+        free(preloadFileHandleInfo);
     }
     
     UNLOCK(PreloadLock);

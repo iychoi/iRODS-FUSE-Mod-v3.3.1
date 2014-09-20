@@ -322,10 +322,6 @@ irodsOper.flush = irodsFlush;
     /* release the preload command line options */
     releaseCmdLineOpt (argc, argv);
 
-#ifdef ENABLE_LAZY_UPLOAD
-    // lazy upload jobs
-    waitLazyUploadJobs();
-#endif
 #ifdef ENABLE_PRELOAD
     // wait preload jobs
     waitPreloadJobs();
