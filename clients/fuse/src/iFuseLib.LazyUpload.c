@@ -224,6 +224,7 @@ writeLazyUploadBufferedFile (const char *path, const char *buf, size_t size, off
     char iRODSPath[MAX_NAME_LEN];
     char bufferPath[MAX_NAME_LEN];
     off_t seek_status;
+    int descInx;
 
     // convert input path to iRODSPath
     status = _getiRODSPath(path, iRODSPath);
@@ -266,8 +267,10 @@ writeLazyUploadBufferedFile (const char *path, const char *buf, size_t size, off
         }
 
         // rewrite directly to iRODS
-        status = _ifuseWrite (&IFuseDesc[fi->fh], (char *)buf, size, offset);
-        unlockDesc (fi->fh);
+        descInx = GET_IFUSE_DESC_INDEX(fi);
+
+        status = _ifuseWrite (&IFuseDesc[descInx], (char *)buf, size, offset);
+        unlockDesc (descInx);
         return status;
     }
 
@@ -374,16 +377,18 @@ closeLazyUploadBufferedFile (const char *path) {
             rodsLog (LOG_DEBUG, "closeLazyUploadBufferedFile: close lazy-upload Buffered file handle - %s", iRODSPath);
         }
 
+	deleteFromHashTable(LazyUploadBufferedFileTable_Opened, iRODSPath);
+
         if(lazyUploadFileInfo->path != NULL) {
             free(lazyUploadFileInfo->path);
             lazyUploadFileInfo->path = NULL;
         }
 
-        deleteFromHashTable(LazyUploadBufferedFileTable_Opened, iRODSPath);
         free(lazyUploadFileInfo);
     }
     
     UNLOCK(LazyUploadLock);
+    rodsLog (LOG_DEBUG, "closeLazyUploadBufferedFile: closed lazy-upload cache handle - %s", iRODSPath);
     return status;
 }
 
@@ -396,6 +401,7 @@ _commitLocalBuffer(const char *path, struct fuse_file_info *fi, lazyUploadFileIn
     int desc;
     char iRODSPath[MAX_NAME_LEN];
     char bufferPath[MAX_NAME_LEN];
+    int descInx;
 
     // convert input path to iRODSPath
     status = _getiRODSPath(path, iRODSPath);
@@ -437,7 +443,11 @@ _commitLocalBuffer(const char *path, struct fuse_file_info *fi, lazyUploadFileIn
         struct stat stbuf;
         char objPath[MAX_NAME_LEN];
 
-        status = ifuseClose (&IFuseDesc[fi->fh]);
+        descInx = GET_IFUSE_DESC_INDEX(fi);
+
+        rodsLog (LOG_DEBUG, "_commitLocalBuffer: closing existing iRODS file handle - %s - %d", iRODSPath, descInx);
+
+        status = ifuseClose (&IFuseDesc[descInx]);
         clearPathFromCache((char *)path);
         if (status < 0) {
             int myError;
@@ -449,6 +459,8 @@ _commitLocalBuffer(const char *path, struct fuse_file_info *fi, lazyUploadFileIn
         }
 
         // put
+        rodsLog (LOG_DEBUG, "_commitLocalBuffer: uploading buffered file - %s", iRODSPath);
+
         status = _upload(iRODSPath);
         if(status != 0) {
             rodsLog (LOG_DEBUG, "_commitLocalBuffer: upload error - %s, %d", iRODSPath, status);
@@ -456,6 +468,8 @@ _commitLocalBuffer(const char *path, struct fuse_file_info *fi, lazyUploadFileIn
         }
 
         // reopen file
+        rodsLog (LOG_DEBUG, "_commitLocalBuffer: reopening iRODS file handle - %s", iRODSPath);
+
         memset (&dataObjInp, 0, sizeof (dataObjInp));
         dataObjInp.openFlags = lazyUploadFileInfo->accmode;
 
@@ -500,7 +514,8 @@ _commitLocalBuffer(const char *path, struct fuse_file_info *fi, lazyUploadFileIn
             return -ENOENT;
         }
 
-        fi->fh = desc->index;
+        SET_IFUSE_DESC_INDEX(fi, desc->index);
+        rodsLog (LOG_DEBUG, "_commitLocalBuffer: created new file handle - %s - %d", iRODSPath, desc->index);
 
     } else {
         // append
@@ -513,7 +528,9 @@ _commitLocalBuffer(const char *path, struct fuse_file_info *fi, lazyUploadFileIn
             return -ENOENT;
         }
 
-        if (checkFuseDesc (fi->fh) < 0) {
+        descInx = GET_IFUSE_DESC_INDEX(fi);
+
+        if (checkFuseDesc (descInx) < 0) {
             return -EBADF;
         }
 
@@ -538,7 +555,7 @@ _commitLocalBuffer(const char *path, struct fuse_file_info *fi, lazyUploadFileIn
 
             if(status >= 0) {
                 while(totalWriteLen < totalReadLen) {
-                    int writeLen = _ifuseWrite (&IFuseDesc[fi->fh], buffer + totalWriteLen, totalReadLen - totalWriteLen, lazyUploadFileInfo->curLocalOffsetStart + totalWriteLen);
+                    int writeLen = _ifuseWrite (&IFuseDesc[descInx], buffer + totalWriteLen, totalReadLen - totalWriteLen, lazyUploadFileInfo->curLocalOffsetStart + totalWriteLen);
                     if(writeLen > 0) {
                         totalWriteLen += writeLen;
                     } else if(writeLen == 0) {
@@ -555,11 +572,13 @@ _commitLocalBuffer(const char *path, struct fuse_file_info *fi, lazyUploadFileIn
             grandTotalReadLen += totalReadLen;
         }
 
-        unlockDesc (fi->fh);
+        unlockDesc (descInx);
 
         free(buffer);
         close(localDesc);
     }
+
+    rodsLog (LOG_DEBUG, "_commitLocalBuffer: reset local buffered file - %s", iRODSPath);
 
     // reset local buffer file
     desc = open (bufferPath, O_RDWR|O_CREAT|O_TRUNC, 0755);

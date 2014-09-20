@@ -1015,7 +1015,8 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
                     rodsLogError (LOG_ERROR, status, "irodsOpen: create descriptor of %s error", dataObjInp.objPath);
                     return status;
                 }
-                fi->fh = desc->index;
+                //fi->fh = desc->index;
+                SET_IFUSE_DESC_INDEX(fi, desc->index);
                 if(tmpPathCache->fileCache->iFd == 0) {
                     tmpPathCache->fileCache->iFd = open(tmpPathCache->fileCache->fileCachePath, O_RDWR);
                 }
@@ -1164,8 +1165,8 @@ irodsOpen (const char *path, struct fuse_file_info *fi)
         }
     }
 
-    fi->fh = desc->index;
-
+    //fi->fh = desc->index;
+    SET_IFUSE_DESC_INDEX(fi, desc->index);
     return (0);
 }
 
@@ -1192,7 +1193,8 @@ struct fuse_file_info *fi)
     rodsLog (LOG_DEBUG, "irodsRead: read from irods\n");
 #endif
 
-    descInx = fi->fh;
+    //descInx = fi->fh;
+    descInx = GET_IFUSE_DESC_INDEX(fi);
 
     if (checkFuseDesc (descInx) < 0) {
         return -EBADF;
@@ -1221,7 +1223,8 @@ struct fuse_file_info *fi)
     }
 #endif
 
-    descInx = fi->fh;
+    //descInx = fi->fh;
+    descInx = GET_IFUSE_DESC_INDEX(fi);
 
     if (checkFuseDesc (descInx) < 0) {
         return -EBADF;
@@ -1269,22 +1272,25 @@ irodsRelease (const char *path, struct fuse_file_info *fi)
 #ifdef ENABLE_PRELOAD
     // check local cache
     if (isPreloadEnabled() == 0 && isPreloadedFile (path) >= 0) {
-        rodsLog (LOG_DEBUG, "irodsRelease: %s", path);
         closePreloadedFile (path);
     }
 #endif
 #ifdef ENABLE_LAZY_UPLOAD
     if (isLazyUploadEnabled() == 0 && isFileLazyUploading (path) >= 0) {
-        rodsLog (LOG_DEBUG, "irodsRelease: %s", path);
         closeLazyUploadBufferedFile (path);
     }
 #endif
 
-    descInx = fi->fh;
+    //descInx = fi->fh;
+    descInx = GET_IFUSE_DESC_INDEX(fi);
+
+    rodsLog (LOG_DEBUG, "irodsRelease - desc : %s - %d", path, descInx);
 
     /* if (checkFuseDesc (descInx) < 0) {
         return -EBADF;
     } */
+
+    rodsLog (LOG_DEBUG, "ifuseClose - desc : %s", path);
 
     status = ifuseClose (&IFuseDesc[descInx]);
 

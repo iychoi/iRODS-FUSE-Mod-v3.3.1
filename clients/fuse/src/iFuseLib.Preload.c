@@ -463,13 +463,14 @@ closePreloadedFile (const char *path) {
             rodsLog (LOG_DEBUG, "closePreloadedFile: close preloaded cache handle - %s", iRODSPath);
         }
 
+        // remove from hash table
+        deleteFromHashTable(PreloadFileHandleTable, iRODSPath);
+
         if(preloadFileHandleInfo->path != NULL) {
             free(preloadFileHandleInfo->path);
             preloadFileHandleInfo->path = NULL;
         }
     
-        // remove from hash table
-        deleteFromHashTable(PreloadFileHandleTable, iRODSPath);
         free(preloadFileHandleInfo);
     }
     
