@@ -276,14 +276,23 @@ writeLazyUploadBufferedFile (const char *path, const char *buf, size_t size, off
 
     // try to write to local buffer
     seek_status = lseek (lazyUploadFileInfo->localHandle, offset - lazyUploadFileInfo->curLocalOffsetStart, SEEK_SET);
-    if (seek_status != offset) {
+    if (seek_status != (offset - lazyUploadFileInfo->curLocalOffsetStart)) {
         status = (int)seek_status;
         rodsLog (LOG_DEBUG, "writeLazyUploadBufferedFile: failed to seek file desc - %d, %ld -> %ld", lazyUploadFileInfo->localHandle, offset - lazyUploadFileInfo->curLocalOffsetStart, seek_status);
         UNLOCK(LazyUploadLock);
         return status;
     }
 
-    status = write (lazyUploadFileInfo->localHandle, buf, size);
+    // TEST
+    if (lazyUploadFileInfo->curOffset > 10*1024*1024) {
+        status = -1;
+        errno = ENOSPC;
+    } else {
+        status = write (lazyUploadFileInfo->localHandle, buf, size);
+    }
+    // TEST END
+
+    //status = write (lazyUploadFileInfo->localHandle, buf, size);
     rodsLog (LOG_DEBUG, "writeLazyUploadBufferedFile: write to opened lazy-upload Buffered file - %d", lazyUploadFileInfo->localHandle);
 
     if (status < 0) {
@@ -300,7 +309,7 @@ writeLazyUploadBufferedFile (const char *path, const char *buf, size_t size, off
 
             // write to local buffer again
             seek_status = lseek (lazyUploadFileInfo->localHandle, offset - lazyUploadFileInfo->curLocalOffsetStart, SEEK_SET);
-            if (seek_status != offset) {
+            if (seek_status != (offset - lazyUploadFileInfo->curLocalOffsetStart)) {
                 status = (int)seek_status;
                 rodsLog (LOG_DEBUG, "writeLazyUploadBufferedFile: failed to seek file desc - %d, %ld -> %ld", lazyUploadFileInfo->localHandle, offset - lazyUploadFileInfo->curLocalOffsetStart, seek_status);
                 UNLOCK(LazyUploadLock);
@@ -471,7 +480,8 @@ _commitLocalBuffer(const char *path, struct fuse_file_info *fi, lazyUploadFileIn
         rodsLog (LOG_DEBUG, "_commitLocalBuffer: reopening iRODS file handle - %s", iRODSPath);
 
         memset (&dataObjInp, 0, sizeof (dataObjInp));
-        dataObjInp.openFlags = lazyUploadFileInfo->accmode;
+        //dataObjInp.openFlags = lazyUploadFileInfo->accmode;
+        dataObjInp.openFlags = O_RDWR | O_APPEND;
 
         status = parseRodsPathStr ((char *) (path + 1) , LazyUploadRodsEnv, objPath);
         rstrcpy(dataObjInp.objPath, objPath, MAX_NAME_LEN);
