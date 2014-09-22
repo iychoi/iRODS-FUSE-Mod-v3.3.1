@@ -8,7 +8,7 @@ Overview
 
 Read/write performance of iRODS FUSE (irodsFs) is much slower than "iget" and "iput", command-line version tools, when we try to deal with large data files. This is because "iget" and "iput" uses multi-threaded accesses to remote data files and uses bigger chunk size per request while iRODS FUSE (irodsFs) uses a single thread and small chunk size.
 
-In this modification, file read/write performances are improved by using the same techniques as "iget" and "iput" are using. While reading a remote file, the modified iRODS FUSE will download the whole file to local disk in a background. Once it finishes background downloading the file, subsequent file read will be switched from a remote iRODS to a local disk and performance will get faster. When write a file, the modified iRODS FUSE will temporarily store the file content to the local disk and upload when the file is closed lazily. During background preload and lazy-upload, the modification uses same APIs that "iget" and "iput" uses. As they are multi-threaded and use bigger chunk size, preload and lazy-upload works very fast.
+In this modification, file read/write performances are improved by using the same techniques as "iget" and "iput" are using. While reading a remote file, the modified iRODS FUSE will download the whole file to local disk in a background. Once it finishes background downloading the file, subsequent file read will be switched from a remote iRODS to a local disk and performance will get faster. When write a file, the modified iRODS FUSE will temporarily store the file content to the local disk and upload when the file is flushed. During preload and lazy-upload, the modification uses same APIs that "iget" and "iput" uses. As they are multi-threaded and use bigger chunk size, preload and lazy-upload work very fast.
 
 This modification also provides usage tracking feature. This feature is developed by Jude Nelson. This feature can be used for monitoring users or debugging purposes. Collected data will be posted to a configured remote server.  
 
@@ -73,17 +73,16 @@ To activate preload and lazy-upload feature with default setting, simply type
 irodsFs --preload --lazyupload /mnt/irods/
 ```
 
-Internal Behaviors that Users Must Know
----------------------------------------
+Internal Behaviors Users Must Know
+----------------------------------
 
-Preload and lazy-upload create background threads for downloading the file content to local disk or uploading the file content to remote iRODS filesystem. Usually these threads will still work in background even if users get a command-prompt back. For example, when a user copies only small portion of a big file from iRODS, the user will get a command-prompt back shortly. However, a background preload thread will still download the file to local disk in background for later use.
+Preload creates background threads for downloading the file content to local disk. Usually these threads will still work in background even if users get a command-prompt back. For example, when a user copies only small portion of a big file from iRODS, the user will get a command-prompt back shortly. However, a background preload thread will still download the file to local disk in background for later use.
 
-During a file is in preloading, users can still open for read. Once the background preloading is completed, the read will be switched to local cached file for better performance. However, users cannot open for write, modify or remove. Because this may cause cache be corrupted, those operations will return EBUSY error code (tells "system is busy"). Depends on software implementations, some softwares may return a failure message or wait until the background preload is completed.
+During a file is in preload, users can still open for read. Once the background preload is completed, the read will be switched to local cached file for better performance. However, users cannot open for write, modify or remove. Because this may cause cache be corrupted, those operations will return EBUSY error code (tells "system is busy"). Depends on software implementations, some softwares may return a failure message or wait until the background preload is completed.
 
-During a file is in lazy-uploading, users cannot open for read and write. Any operations that is related to the file will return EBUSY error code as the file is "locked".
+Lazy-upload buffers file writes at local disk. Whenever a flush operation is called, this buffered writes will be transmitted to the remote iRODS server. As this lazy-upload works synchronously, file writes will be safely stored at iRODS server at flush and close. During lazy-upload, users cannot open the same file for read and write. Any operations that is related to the file will return EBUSY error code as the file is regarded as "locked".
 
-When users try to unmount the iRODS-FUSE-MOD, if there is any background threads for preload or lazy-upload, the unmount operation will wait until they complete the job. Hence, forcing unmount (i.e. sudo umount -f <mount_path>) or killing the iRODS-FUSE-MOD process will cause written file content to lost. 
-
+When users try to unmount the iRODS-FUSE-MOD, if there is any background threads for preload, the unmount operation will wait until they complete the job. Forcing unmount (i.e. sudo umount -f <mount_path>) or killing the iRODS-FUSE-MOD process may create incomplete preload files. However, these incomplete preload files will be automatically removed at next execution. 
 
 Known Issues
 ------------
