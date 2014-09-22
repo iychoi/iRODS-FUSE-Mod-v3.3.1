@@ -29,12 +29,12 @@ static Hashtable *LazyUploadBufferedFileTable_Opened;
  * function definitions
  **************************************************************************/
 static int _prepareBufferDir(const char *path);
-static int _getBufferPath(const char *path, char *bufferPath);
+static int _getBufferPath(const char *iRODSPath, char *bufferPath);
 static int _removeAllBufferedFiles();
 static int _getiRODSPath(const char *path, char *iRODSPath);
-static int _isLazyUploadFile(const char *path);
-static int _commitLocalBuffer(const char *path, struct fuse_file_info *fi, lazyUploadFileInfo_t *lazyUploadFileInfo);
-static int _upload(const char *path);
+static int _isLazyUploadFile(const char *iRODSPath);
+static int _commitLocalBuffer(const char *iRODSPath, struct fuse_file_info *fi, lazyUploadFileInfo_t *lazyUploadFileInfo);
+static int _upload(const char *iRODSPath);
 
 
 /**************************************************************************
@@ -259,7 +259,7 @@ writeLazyUploadBufferedFile (const char *path, const char *buf, size_t size, off
     if(offset - lazyUploadFileInfo->curLocalOffsetStart < 0) {
         // backward?
         // commit local buffered data
-        status = _commitLocalBuffer(path, fi, lazyUploadFileInfo);
+        status = _commitLocalBuffer(iRODSPath, fi, lazyUploadFileInfo);
         if(status < 0) {
             rodsLog (LOG_DEBUG, "writeLazyUploadBufferedFile: failed to commit local buffered data - %s", iRODSPath);
             UNLOCK(LazyUploadLock);
@@ -300,7 +300,7 @@ writeLazyUploadBufferedFile (const char *path, const char *buf, size_t size, off
         if (errno == ENOSPC) {
             // handle no space
             // mode switch
-            status = _commitLocalBuffer(path, fi, lazyUploadFileInfo);
+            status = _commitLocalBuffer(iRODSPath, fi, lazyUploadFileInfo);
             if(status < 0) {
                 rodsLog (LOG_DEBUG, "writeLazyUploadBufferedFile: failed to change to appending mode - %s", iRODSPath);
                 UNLOCK(LazyUploadLock);
@@ -350,7 +350,7 @@ syncLazyUploadBufferedFile (const char *path, struct fuse_file_info *fi) {
     lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadBufferedFileTable_Opened, iRODSPath);
     if(lazyUploadFileInfo != NULL) {
         // has lazy-upload file handle opened
-        status = _commitLocalBuffer(path, fi, lazyUploadFileInfo);
+        status = _commitLocalBuffer(iRODSPath, fi, lazyUploadFileInfo);
         if(status < 0) {
             rodsLog (LOG_DEBUG, "syncLazyUploadBufferedFile: failed to commit local buffer - %s", iRODSPath);
             UNLOCK(LazyUploadLock);
@@ -366,6 +366,7 @@ int
 closeLazyUploadBufferedFile (const char *path) {
     int status;
     char iRODSPath[MAX_NAME_LEN];
+    char bufferPath[MAX_NAME_LEN];
     lazyUploadFileInfo_t *lazyUploadFileInfo = NULL;
 
     // convert input path to iRODSPath
@@ -375,7 +376,16 @@ closeLazyUploadBufferedFile (const char *path) {
         return status;
     }
 
+    status = _getBufferPath(iRODSPath, bufferPath);
+    if(status < 0) {
+        rodsLog (LOG_DEBUG, "closeLazyUploadBufferedFile: failed to get Buffered lazy upload file path - %s", iRODSPath);
+        return status;
+    }
+
     LOCK(LazyUploadLock);
+    
+    // remove buffered file
+    unlink(bufferPath);
 
     lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadBufferedFileTable_Opened, iRODSPath);
     if(lazyUploadFileInfo != NULL) {
@@ -386,7 +396,7 @@ closeLazyUploadBufferedFile (const char *path) {
             rodsLog (LOG_DEBUG, "closeLazyUploadBufferedFile: close lazy-upload Buffered file handle - %s", iRODSPath);
         }
 
-	deleteFromHashTable(LazyUploadBufferedFileTable_Opened, iRODSPath);
+	    deleteFromHashTable(LazyUploadBufferedFileTable_Opened, iRODSPath);
 
         if(lazyUploadFileInfo->path != NULL) {
             free(lazyUploadFileInfo->path);
@@ -405,23 +415,15 @@ closeLazyUploadBufferedFile (const char *path) {
  * private functions
  **************************************************************************/
 static int
-_commitLocalBuffer(const char *path, struct fuse_file_info *fi, lazyUploadFileInfo_t *lazyUploadFileInfo) {
+_commitLocalBuffer(const char *iRODSPath, struct fuse_file_info *fi, lazyUploadFileInfo_t *lazyUploadFileInfo) {
     int status;
     int desc;
-    char iRODSPath[MAX_NAME_LEN];
     char bufferPath[MAX_NAME_LEN];
     int descInx;
 
-    // convert input path to iRODSPath
-    status = _getiRODSPath(path, iRODSPath);
+    status = _getBufferPath(iRODSPath, bufferPath);
     if(status < 0) {
-        rodsLog (LOG_DEBUG, "_commitLocalBuffer: failed to get iRODS path - %s", path);
-        return status;
-    }
-
-    status = _getBufferPath(path, bufferPath);
-    if(status < 0) {
-        rodsLog (LOG_DEBUG, "_upload: failed to get Buffered lazy upload file path - %s", path);
+        rodsLog (LOG_DEBUG, "_upload: failed to get Buffered lazy upload file path - %s", iRODSPath);
         return status;
     }
 
@@ -433,7 +435,7 @@ _commitLocalBuffer(const char *path, struct fuse_file_info *fi, lazyUploadFileIn
 
     // no write but requested flush
     if(lazyUploadFileInfo->curOffset == 0) {
-        return 0;        
+        return 0;
     }
 
     fsync(lazyUploadFileInfo->localHandle);
@@ -457,7 +459,7 @@ _commitLocalBuffer(const char *path, struct fuse_file_info *fi, lazyUploadFileIn
         rodsLog (LOG_DEBUG, "_commitLocalBuffer: closing existing iRODS file handle - %s - %d", iRODSPath, descInx);
 
         status = ifuseClose (&IFuseDesc[descInx]);
-        clearPathFromCache((char *)path);
+        clearPathFromCache((char *)iRODSPath);
         if (status < 0) {
             int myError;
             if ((myError = getErrno (status)) > 0) {
@@ -483,44 +485,44 @@ _commitLocalBuffer(const char *path, struct fuse_file_info *fi, lazyUploadFileIn
         //dataObjInp.openFlags = lazyUploadFileInfo->accmode;
         dataObjInp.openFlags = O_RDWR | O_APPEND;
 
-        status = parseRodsPathStr ((char *) (path + 1) , LazyUploadRodsEnv, objPath);
+        status = parseRodsPathStr ((char *) iRODSPath, LazyUploadRodsEnv, objPath);
         rstrcpy(dataObjInp.objPath, objPath, MAX_NAME_LEN);
         if (status < 0) {
-            rodsLogError (LOG_ERROR, status, "_commitLocalBuffer: parseRodsPathStr of %s error", path);
+            rodsLogError (LOG_ERROR, status, "_commitLocalBuffer: parseRodsPathStr of %s error", iRODSPath);
             /* use ENOTDIR for this type of error */
             return -ENOTDIR;
         }
 
-        iFuseConn = getAndUseConnByPath((char *) path, LazyUploadRodsEnv, &status);
+        iFuseConn = getAndUseConnByPath((char *) iRODSPath, LazyUploadRodsEnv, &status);
         /* status = getAndUseIFuseConn(&iFuseConn, &MyRodsEnv); */
         if(status < 0) {
-            rodsLogError (LOG_ERROR, status, "_commitLocalBuffer: cannot get connection for %s error", path);
+            rodsLogError (LOG_ERROR, status, "_commitLocalBuffer: cannot get connection for %s error", iRODSPath);
             /* use ENOTDIR for this type of error */
             return -ENOTDIR;
         }
 
-        status = _irodsGetattr (iFuseConn, path, &stbuf);
+        status = _irodsGetattr (iFuseConn, iRODSPath, &stbuf);
 
         fd = rcDataObjOpen (iFuseConn->conn, &dataObjInp);
         unuseIFuseConn (iFuseConn);
 
         if (fd < 0) {
-            rodsLogError (LOG_ERROR, status, "_commitLocalBuffer: rcDataObjOpen of %s error, status = %d", path, fd);
+            rodsLogError (LOG_ERROR, status, "_commitLocalBuffer: rcDataObjOpen of %s error, status = %d", iRODSPath, fd);
             return -ENOENT;
         }
 
-        fileCache_t *fileCache = addFileCache(fd, objPath, (char *) path, NULL, stbuf.st_mode, stbuf.st_size, NO_FILE_CACHE);
-        matchAndLockPathCache((char *) path, &tmpPathCache);
+        fileCache_t *fileCache = addFileCache(fd, objPath, (char *) iRODSPath, NULL, stbuf.st_mode, stbuf.st_size, NO_FILE_CACHE);
+        matchAndLockPathCache((char *) iRODSPath, &tmpPathCache);
         if(tmpPathCache == NULL) {
-            pathExist((char *) path, fileCache, &stbuf, NULL);
+            pathExist((char *) iRODSPath, fileCache, &stbuf, NULL);
         } else {
             _addFileCacheForPath(tmpPathCache, fileCache);
             UNLOCK_STRUCT(*tmpPathCache);
         }
 
-        desc = newIFuseDesc (objPath, (char *) path, fileCache, &status);
+        desc = newIFuseDesc (objPath, (char *) iRODSPath, fileCache, &status);
         if (desc == NULL) {
-            rodsLogError (LOG_ERROR, status, "_commitLocalBuffer: allocIFuseDesc of %s error", path);
+            rodsLogError (LOG_ERROR, status, "_commitLocalBuffer: allocIFuseDesc of %s error", iRODSPath);
             return -ENOENT;
         }
 
@@ -600,7 +602,7 @@ _commitLocalBuffer(const char *path, struct fuse_file_info *fi, lazyUploadFileIn
 }
 
 static int
-_upload (const char *path) {
+_upload (const char *iRODSPath) {
     int status;
     rcComm_t *conn;
     rodsPathInp_t rodsPathInp;
@@ -608,15 +610,15 @@ _upload (const char *path) {
     char bufferPath[MAX_NAME_LEN];
     char destiRODSDir[MAX_NAME_LEN];
 
-    status = getParentDir(path, destiRODSDir);
+    status = getParentDir(iRODSPath, destiRODSDir);
     if(status < 0) {
-        rodsLog (LOG_DEBUG, "_upload: failed to get parent dir - %s", path);
+        rodsLog (LOG_DEBUG, "_upload: failed to get parent dir - %s", iRODSPath);
         return status;
     }
 
-    status = _getBufferPath(path, bufferPath);
+    status = _getBufferPath(iRODSPath, bufferPath);
     if(status < 0) {
-        rodsLog (LOG_DEBUG, "_upload: failed to get Buffered lazy upload file path - %s", path);
+        rodsLog (LOG_DEBUG, "_upload: failed to get Buffered lazy upload file path - %s", iRODSPath);
         return status;
     }
 
@@ -676,15 +678,15 @@ _upload (const char *path) {
 }
 
 static int
-_isLazyUploadFile(const char *path) {
+_isLazyUploadFile(const char *iRODSPath) {
     lazyUploadFileInfo_t *lazyUploadFileInfo = NULL;
 
-    if (path == NULL) {
+    if (iRODSPath == NULL) {
         rodsLog (LOG_DEBUG, "_isLazyUploadFile: input inPath is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
-    lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadBufferedFileTable_Opened, (char *) path);
+    lazyUploadFileInfo = (lazyUploadFileInfo_t *)lookupFromHashTable(LazyUploadBufferedFileTable_Opened, (char *) iRODSPath);
     if (lazyUploadFileInfo == NULL) {
         return -1;
     }
@@ -693,16 +695,16 @@ _isLazyUploadFile(const char *path) {
 }
 
 static int
-_getBufferPath(const char *path, char *bufferPath) {
-    if (path == NULL || bufferPath == NULL) {
+_getBufferPath(const char *iRODSPath, char *bufferPath) {
+    if (iRODSPath == NULL || bufferPath == NULL) {
         rodsLog (LOG_DEBUG, "_getBufferPath: given path or bufferPath is NULL");
         return (SYS_INTERNAL_NULL_INPUT_ERR);
     }
 
-    if(strlen(path) > 0 && path[0] == '/') {
-        snprintf(bufferPath, MAX_NAME_LEN, "%s%s", LazyUploadConfig.bufferPath, path);
+    if(strlen(iRODSPath) > 0 && iRODSPath[0] == '/') {
+        snprintf(bufferPath, MAX_NAME_LEN, "%s%s", LazyUploadConfig.bufferPath, iRODSPath);
     } else {
-        snprintf(bufferPath, MAX_NAME_LEN, "%s/%s", LazyUploadConfig.bufferPath, path);
+        snprintf(bufferPath, MAX_NAME_LEN, "%s/%s", LazyUploadConfig.bufferPath, iRODSPath);
     }
     return (0);
 }
