@@ -304,12 +304,14 @@ irodsOper.flush = irodsFlush;
     initLazyUpload (&MyLazyUploadConfig, &MyRodsEnv, &myRodsArgs);
 #endif    
 #ifdef ENABLE_TRACE
+
     // start tracing
     status = trace_begin( NULL );
     if( status != 0 ) {
         rodsLogError(LOG_ERROR, status, "main: trace_begin failed. ");
         exit(1);
     }
+
 #endif
 
     status = fuse_main (argc, argv, &irodsOper, NULL);
@@ -439,6 +441,13 @@ parseFuseSpecificCmdLineOpt (int argc, char **argv) {
             }
         }
 #endif
+#ifdef ENABLE_TRACE
+
+        int rc = trace_read_arg( argc, argv, i );
+        if( rc != 0 ) {
+           return rc;
+        }
+#endif
     }
 
     // set default
@@ -540,7 +549,16 @@ usage ()
 " --lazyupload             use lazy-upload",
 " --lazyupload-buffer-dir  specify lazy-upload buffer directory",
 #endif
-
+#ifdef ENABLE_TRACE
+" ",
+"Extended Options for Tracing",
+" --trace [on|off]         Enable/disable access tracing",
+" --trace-path-salt SALT   Salt to add to the paths when hashing them in the trace log",
+" --trace-host HOSTNAME    Send traces to HOSTNAME",
+" --trace-port PORTNUM     Connect to the trace host on port PORTNUM",
+" --trace-timeout SECONDS  Number of seconds to wait before giving up connecting to the trace host",
+" --trace-sync-delay SECONDS   Number of seconds between sending trace snapshots",
+#endif
 ""};
     int i;
     for (i=0;;i++) {

@@ -445,11 +445,66 @@ int trace_end( struct log_context** ctx ) {
    return rc;
 }
 
+static int trace_setenv_from_argv( char const* varname, int argc, char** argv, int i ) {
+   if( i + 2 < argc ) {
+      if( argv[i+1][0] == '-' ) {
+         rodsLog( LOG_ERROR, "Required argument for option %s", argv[i] );
+         return USER_INPUT_OPTION_ERR;
+      }
+      else {
+         // argv overrides environment
+         setenv( varname, argv[i+1], 1 );
+      }
+   }
+   else {
+      rodsLog(LOG_ERROR, "Required argument for option %s", argv[i] );
+      return USER_INPUT_OPTION_ERR;
+   }
+
+   return 0;
+}
+
+int trace_read_arg( int argc, char** argv, int i ) {
+
+   // see if the ith argument in argv is a trace option, and enable it.
+   
+   static char const* argv_to_envar[][2] = {
+      {"--trace",            "IRODSFS_LOG_TRACE"},
+      {"--trace-host",       "IRODSFS_LOG_SERVER_HOSTNAME"},
+      {"--trace-port",       "IRODSFS_LOG_SERVER_PORTNUM"},
+      {"--trace-salt",       "IRODSFS_LOG_PATH_SALT"},
+      {"--trace-timeout",    "IRODSFS_LOG_SERVER_TIMEOUT"},
+      {"--trace-sync-delay", "IRODSFS_LOG_SERVER_SYNC_DELAY"},
+      {NULL, NULL}
+   };
+
+   int rc = 0;
+
+   for( int j = 0; argv_to_envar[j][0] != NULL; j++ ) {
+      
+      if( strcmp(argv_to_envar[j][0], argv[i]) == 0 ) {
+         
+         rc = trace_setenv_from_argv( argv_to_envar[j][1], argc, argv, i );
+         if( rc != 0 ) {
+            return rc;
+         }
+
+         // consumed!
+         argv[i] = "-Z";
+         argv[i+1] = "-Z";
+         break;
+      }
+   }
+
+   return 0;
+}
 
 void trace_usage(void) {
    char const* msgs[] = {
 " ",
 "Special environment variables that control tracing:",
+" IRODSFS_LOG_TRACE                Activate/disable tracing by setting this to 'on' or 'off'",
+" ",
 " IRODSFS_LOG_PATH_SALT            A string to be used to salt path hashes when logging.",
 "                                  It is best to make this at least 256 random characters.",
 " ",
