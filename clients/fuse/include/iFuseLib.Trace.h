@@ -45,6 +45,7 @@ int traced_irodsReaddir(const char *path, void *buf, fuse_fill_dir_t filler, off
 #endif
 
 int trace_get_environment_variables( char** http_host, int* portnum, int* sync_delay, char** log_path_salt );
+int trace_read_arg( int argc, char** argv, int i );
 int trace_begin( struct log_context** ctx );
 int trace_end( struct log_context** ctx );
 
