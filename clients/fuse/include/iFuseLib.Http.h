@@ -14,6 +14,7 @@
 #include <errno.h>
 #include <time.h>
 
+// defaults
 #ifndef HTTP_LOG_SERVER_HOSTNAME
 #define HTTP_LOG_SERVER_HOSTNAME "malloy.iplantcollaborative.org"
 #endif 
@@ -30,12 +31,17 @@
 #define HTTP_LOG_SYNC_TIMEOUT 60
 #endif
 
+#ifndef HTTP_LOG_MAX_LINES
+#define HTTP_LOG_MAX_LINES      10000
+#endif
+
 #define xstr(s) str(s)
 #define str(s) #s
 
 #define HTTP_LOG_SERVER_PORTNUM_STR     xstr(HTTP_LOG_SERVER_PORTNUM)
 #define HTTP_LOG_SERVER_TIMEOUT_STR     xstr(HTTP_LOG_SERVER_TIMEOUT)
 #define HTTP_LOG_SYNC_TIMEOUT_STR       xstr(HTTP_LOG_SYNC_TIMEOUT)
+#define HTTP_LOG_MAX_LINES_STR          xstr(HTTP_LOG_MAX_LINES)
 
 #ifdef  __cplusplus
 extern "C" {
