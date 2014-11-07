@@ -59,9 +59,9 @@ LIB_OBJS =	\
 		$(objDir)/iFuseLib.Lock.o \
 		$(objDir)/iFuseLib.PathCache.o \
 		$(objDir)/iFuseLib.Utils.o \
-        $(objDir)/iFuseLib.FSUtils.o \
-        $(objDir)/iFuseLib.Preload.o \
-        $(objDir)/iFuseLib.LazyUpload.o \
+		$(objDir)/iFuseLib.FSUtils.o \
+		$(objDir)/iFuseLib.Preload.o \
+		$(objDir)/iFuseLib.LazyUpload.o \
         $(objDir)/iFuseLib.Http.o \
         $(objDir)/iFuseLib.Trace.o \
         $(objDir)/iFuseLib.Logging.o \
@@ -82,7 +82,7 @@ INCLUDES +=	-I$(incDir) -I$(reIncDir)
 # enable/disable extended features
 PRELOAD = 1
 LAZY_UPLOAD = 1
-TRACE = 1
+#TRACE = 1
 
 CFLAGS_OPTIONS := -g $(CFLAGS) $(MY_CFLAG)
 ifdef IRODS_FS

@@ -125,6 +125,7 @@ int _iFuseFileCacheFlush(fileCache_t *fileCache) {
 	    fileCache->iFd = objFd;
 	    fileCache->state = NO_FILE_CACHE;
 	    fileCache->offset = 0;
+		status = objFd;
 	} else {
 		fileCache->state = HAVE_READ_CACHE;
 	}
@@ -223,18 +224,18 @@ int ifuseFileCacheClose(fileCache_t *fileCache) {
 	int status = 0;
 	LOCK_STRUCT(*fileCache);
 	if(fileCache->state == NO_FILE_CACHE) {
-    		/* close remote file */
-    		iFuseConn_t *conn = getAndUseConnByPath(fileCache->localPath, &MyRodsEnv, &status);
+		/* close remote file */
+        UNLOCK_STRUCT( *fileCache );
+		iFuseConn_t *conn = getAndUseConnByPath(fileCache->localPath, &MyRodsEnv, &status);
+        LOCK_STRUCT( *fileCache );
 		status = closeIrodsFd (conn->conn, fileCache->iFd);
 		unuseIFuseConn(conn);
 		fileCache->offset = 0;
 	} else {
 		/* close local file */
-		if(fileCache->status == 1) {
-	    		status = close (fileCache->iFd);
-	    		fileCache->iFd = 0;
-			fileCache->offset = 0;
-		}
+		status = close( fileCache->iFd );
+		fileCache->iFd = 0;
+		fileCache->offset = 0;
 	}
 	UNLOCK_STRUCT(*fileCache);
 	return status;
@@ -380,6 +381,7 @@ int _ifuseFileCacheWrite (fileCache_t *fileCache, char *buf, size_t size, off_t 
             rstrcpy (dataObjOpenInp.objPath, fileCache->objPath, MAX_NAME_LEN);
             dataObjOpenInp.openFlags = O_RDWR;
 
+            int status;
             conn = getAndUseConnByPath(fileCache->localPath, &MyRodsEnv, &status);
             status = rcDataObjOpen (conn->conn, &dataObjOpenInp);
             unuseIFuseConn (conn);

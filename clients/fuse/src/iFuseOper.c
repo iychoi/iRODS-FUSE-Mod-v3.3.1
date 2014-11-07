@@ -25,23 +25,9 @@ irodsGetattr (const char *path, struct stat *stbuf)
     int status;
     iFuseConn_t *iFuseConn = NULL;
 
-    iFuseConn = getAndUseConnByPath ((char *) path, &MyRodsEnv, &status);
-    status = _irodsGetattr (iFuseConn, path, stbuf);
-    unuseIFuseConn (iFuseConn);
-    return (status);
-}
-
-int
-_irodsGetattr (iFuseConn_t *iFuseConn, const char *path, struct stat *stbuf)
-{
-    int status;
-    dataObjInp_t dataObjInp;
-    rodsObjStat_t *rodsObjStatOut = NULL;
 #ifdef CACHE_FUSE_PATH
     pathCache_t *tmpPathCache;
 #endif
-
-    rodsLog (LOG_DEBUG, "_irodsGetattr: %s", path);
 
 #ifdef CACHE_FUSE_PATH
 
@@ -73,6 +59,28 @@ _irodsGetattr (iFuseConn_t *iFuseConn, const char *path, struct stat *stbuf)
 		}
     }
 #endif
+    iFuseConn = getAndUseConnByPath((char *) path, &MyRodsEnv, &status);
+    status = _irodsGetattr(iFuseConn, path, stbuf);
+    unuseIFuseConn( iFuseConn );
+#ifdef CACHE_FUSE_PATH
+	if (status == -ENOENT ) {
+        pathNotExist( ( char * ) path );		
+	} else {		
+		/* don't set file cache */
+		pathExist((char *) path, NULL, stbuf, &tmpPathCache);
+	}
+#endif
+
+    return status;
+}
+
+int
+_irodsGetattr( iFuseConn_t *iFuseConn, const char *path, struct stat *stbuf ) {
+    int status;
+    dataObjInp_t dataObjInp;
+    rodsObjStat_t *rodsObjStatOut = NULL;
+
+    rodsLog( LOG_DEBUG, "_irodsGetattr: %s", path );
 
     memset (stbuf, 0, sizeof (struct stat));
     memset (&dataObjInp, 0, sizeof (dataObjInp));
@@ -94,9 +102,6 @@ _irodsGetattr (iFuseConn_t *iFuseConn, const char *path, struct stat *stbuf)
                 rodsLogError (LOG_ERROR, status,
                         "irodsGetattr: rcObjStat of %s error", path);
             }
-#ifdef CACHE_FUSE_PATH
-            pathNotExist ((char *) path);
-#endif
             return -ENOENT;
         }
     }
@@ -106,20 +111,20 @@ _irodsGetattr (iFuseConn_t *iFuseConn, const char *path, struct stat *stbuf)
                 atoi (rodsObjStatOut->createTime), atoi (rodsObjStatOut->modifyTime),
                 atoi (rodsObjStatOut->modifyTime));
     } else if (rodsObjStatOut->objType == UNKNOWN_OBJ_T) {
-        pathNotExist ((char *) path);
-        if (rodsObjStatOut != NULL) freeRodsObjStat (rodsObjStatOut);
-            return -ENOENT;
+        if (rodsObjStatOut != NULL) {
+            freeRodsObjStat (rodsObjStatOut);
+        }
+        return -ENOENT;
     } else {
         fillFileStat (stbuf, rodsObjStatOut->dataMode, rodsObjStatOut->objSize,
                 atoi (rodsObjStatOut->createTime), atoi (rodsObjStatOut->modifyTime),
                 atoi (rodsObjStatOut->modifyTime));
     }
 
-    if (rodsObjStatOut != NULL)
+    if (rodsObjStatOut != NULL) {
         freeRodsObjStat (rodsObjStatOut);
+    }
 
-    /* don't set file cache */
-    pathExist ((char *) path, NULL, stbuf, &tmpPathCache);
     return 0;
 }
 

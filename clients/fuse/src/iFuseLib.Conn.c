@@ -71,26 +71,21 @@ int _getAndUseConnForPathCache(iFuseConn_t **iFuseConn, pathCache_t *paca) {
     }
 
     iFuseConn_t *tmpIFuseConn;
-	UNLOCK_STRUCT(*paca);
 	status = getAndUseIFuseConn(&tmpIFuseConn, &MyRodsEnv);
-	LOCK_STRUCT(*paca);
 	if(status < 0) {
 		rodsLog (LOG_ERROR,
 			  "ifuseClose: cannot get ifuse connection for %s error, status = %d",
 			   paca->localPath, status);
 		return status;
 	}
-	if(paca->iFuseConn != NULL) {
-		/* has been changed by other threads, or current paca->ifuseconn inuse,
-		 * return new ifuseconn without setting paca->ifuseconn */
-		*iFuseConn = tmpIFuseConn;
-	} else {
-		/* conn in use, cannot be deleted by conn manager
-		 * therefore, it is safe to do the following without locking conn */
-		REF(paca->iFuseConn, tmpIFuseConn);
-		*iFuseConn = paca->iFuseConn;
-	}
-    return 0;
+
+	/* has been changed by other threads, or current paca->ifuseconn inuse,
+	 * return new ifuseconn without setting paca->ifuseconn */
+	/* conn in use, cannot be deleted by conn manager
+	 * therefore, it is safe to do the following without locking conn */
+	REF(paca->iFuseConn, tmpIFuseConn);
+	*iFuseConn = paca->iFuseConn;
+	return 0;
 }
 
 int getAndUseIFuseConn (iFuseConn_t **iFuseConn, rodsEnv *myRodsEnv) {
@@ -335,8 +330,8 @@ connManager ()
 	        	tmpIFuseConn = (iFuseConn_t *) node->value;
 				if (tmpIFuseConn->inuseCnt == 0 && tmpIFuseConn->pendingCnt == 0 && curTime - tmpIFuseConn->actTime > IFUSE_CONN_TIMEOUT) {
 					listAppendNoRegion(TimeOutList, tmpIFuseConn);
-					node = node->next;
 				}
+				node = node->next;
 			}
 	        UNLOCK_STRUCT(*ConnectedConn);
 
