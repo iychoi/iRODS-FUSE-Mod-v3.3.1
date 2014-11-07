@@ -6,6 +6,38 @@ pid_t gettid(void) {
    return syscall( __NR_gettid );
 }
 
+// concatenate two paths
+static char* log_fullpath( char const* root, char const* path, char* dest ) {
+   char delim = 0;
+   int path_off = 0;
+   
+   int len = strlen(path) + strlen(root) + 2;
+   
+   if( strlen(root) > 0 ) {
+      size_t root_delim_off = strlen(root) - 1;
+      if( root[root_delim_off] != '/' && path[0] != '/' ) {
+         len++;
+         delim = '/';
+      }
+      else if( root[root_delim_off] == '/' && path[0] == '/' ) {
+         path_off = 1;
+      }
+   }
+
+   if( dest == NULL ) {
+      dest = (char*)calloc( len, 1 );
+   }
+   
+   memset(dest, 0, len);
+   
+   strcpy( dest, root );
+   if( delim != 0 ) {
+      dest[strlen(dest)] = '/';
+   }
+   strcat( dest, path + path_off );
+   
+   return dest;
+}
 
 // hash a path 
 void log_hash_path( struct log_context* ctx, char const* path, char hash_buf[LOG_PATH_HASH_LEN] ) {
@@ -35,144 +67,54 @@ void log_hash_path( struct log_context* ctx, char const* path, char hash_buf[LOG
 }
 
 
-// create a log path, suitlabe for log_open 
-char* log_make_path( char const* tmpl ) {
-   
-   char* log_path = (char*)calloc( strlen(tmpl) + 1, 1 );
-   if( log_path == NULL ) {
-      
-      // OOM
-      return NULL;
-   }
-   
-   strcpy( log_path, tmpl );
-   
-   return log_path;
-}
-
-
-// open up a log as a temporary file.
+// open up a log as a temporary file, piped through gzip
 // log_path will be modified by this method.
-static FILE* log_open( char* log_path ) {
+static FILE* log_open( char* log_path, int* ret_tmp_fd ) {
    
-   int tmpfd = mkstemp( log_path );
+   int rc = 0;
+   char const* gzip_cmd_fmt = "/bin/gzip >&%d";
+   int tmpfd = 0;
+   
+   // open temporary file
+   tmpfd = mkstemp( log_path );
    if( tmpfd < 0 ) {
       
-      int rc = -errno;
+      rc = -errno;
       fprintf(stderr, "log_open: mkstemp(%s) errno = %d\n", log_path, rc );
       
       return NULL;
    }
    
-   FILE* logfile = fdopen( tmpfd, "r+" );
-   if( logfile == NULL ) {
-      
-      int rc = -errno;
-      fprintf(stderr, "log_open: fdopen(%s) errno = %d\n", log_path, rc );
+   // pipe log data through gzip 
+   size_t gzip_cmd_len = strlen(gzip_cmd_fmt) + 10;
+   char* gzip_cmd = (char*)calloc( gzip_cmd_len + 1, 1 );
+   
+   if( gzip_cmd == NULL ) {
+      close( tmpfd );
+      return NULL;
+   }
+   
+   snprintf( gzip_cmd, gzip_cmd_len, gzip_cmd_fmt, tmpfd );
+   
+   // begin piping the data into gzip
+   FILE* gzip_pipe = popen( gzip_cmd, "w" );
+   
+   if( gzip_pipe == NULL ) {
+      rc = -errno;
+      fprintf(stderr, "log_open: popen(%s) errno = %d\n", gzip_cmd, rc );
       
       close( tmpfd );
       return NULL;
    }
    
-   return logfile;
-}
-
-
-// compress a log, sending the output to the given path.
-// return the path to the compressed log (caller must free)
-int log_compress( FILE* log_input, char const* output_path ) {
+   *ret_tmp_fd = tmpfd;
    
-  // basically, gzip the file 
-  int rc = 0;
-  char const* gzip_cmd_fmt = "/bin/gzip > %s";
-  
-  size_t gzip_cmd_len = strlen(gzip_cmd_fmt) + strlen(output_path);
-  char* gzip_cmd = (char*)calloc( gzip_cmd_len + 1, 1 );
-  
-  if( gzip_cmd == NULL ) {
-     return -ENOMEM;
-  }
-  
-  snprintf( gzip_cmd, gzip_cmd_len, gzip_cmd_fmt, output_path );
-  
-  // begin piping the data into gzip
-  FILE* gzip_pipe = popen( gzip_cmd, "w" );
-  
-  free( gzip_cmd );
-  
-  if( gzip_pipe == NULL ) {
-     
-     int errsv = -errno;
-     fprintf( stderr, "log_compress: popen(%s) errno = %d\n", gzip_cmd, errsv );
-     
-     return errsv;
-  }
-  
-  // start at the beginning of the log 
-  rc = fseek( log_input, 0, SEEK_SET );
-  if( rc != 0 ) {
-     
-     rc = -errno;
-     fprintf( stderr, "log_compress: fseek(%p) errno = %d\n", log_input, rc );
-     
-     pclose( gzip_pipe );
-     return rc;
-  }
-  
-  char buf[65536];
-  
-  int err = 0;
-  
-  while( 1 ) {
-     
-     size_t nr = fread( buf, 1, 65536, log_input );
-     size_t nw = 0;
-     
-     if( nr > 0 ) {
-        nw = fwrite( buf, 1, nr, gzip_pipe );
-     }
-     
-     if( nr != 65536 || nw != 65536 ) {
-        // EOF?
-        if( feof( log_input ) ) {
-           break;
-        }
-        // error on input?
-        else if( ferror( log_input ) ) {
-           
-           int errsv = -errno;
-           int ferr = ferror( log_input );
-           
-           clearerr( log_input );
-           
-           fprintf( stderr, "log_compress: error reading %p, ferror = %d, errno = %d\n", log_input, errsv, ferr );
-           
-           err = -1;
-           break;
-        }
-        else if( ferror( gzip_pipe ) ) {
-           
-           int errsv = -errno;
-           int ferr = ferror( gzip_pipe );
-           
-           clearerr( gzip_pipe );
-           
-           fprintf( stderr, "log_compress: error writing %p, ferror = %d, errno = %d\n", gzip_pipe, errsv, ferr );
-           
-           err = -1;
-           break;
-        }
-     }
-  }
-  
-  pclose( gzip_pipe );
-
-  return err;
+   return gzip_pipe;
 }
 
 
 // set up a log context 
-struct log_context* log_init( char const* http_server, int http_port, int sync_delay, int timeout, char const* log_path_salt ) {
+struct log_context* log_init( char const* http_server, int http_port, int sync_delay, int timeout, int max_lines, uint64_t methods, char const* log_path_salt, char const* log_path_dir ) {
    
    struct log_context* logctx = (struct log_context*)calloc( sizeof(struct log_context), 1 );
    if( logctx == NULL ) {
@@ -190,7 +132,7 @@ struct log_context* log_init( char const* http_server, int http_port, int sync_d
       return NULL;
    }
    
-   char* log_path = log_make_path( LOG_PATH_FMT );
+   char* log_path = log_fullpath( log_path_dir, LOG_PATH_FMT, NULL );
    if( log_path == NULL ) {
       
       // OOM
@@ -198,8 +140,9 @@ struct log_context* log_init( char const* http_server, int http_port, int sync_d
       return NULL;
    }
    
-   FILE* logfile = log_open( log_path );
-   if( logfile == NULL ) {
+   int tmpfd = -1;
+   FILE* logfile_pipe = log_open( log_path, &tmpfd );
+   if( logfile_pipe == NULL ) {
       
       fprintf(stderr, "log_open(%s) failed\n", log_path );
       
@@ -208,20 +151,23 @@ struct log_context* log_init( char const* http_server, int http_port, int sync_d
       return NULL;
    }
    
-   logctx->logfile = logfile;
-   
-   // line bufferring
-   setvbuf( logctx->logfile, NULL, _IOLBF, 0 );
-   
+   logctx->logfile_pipe = logfile_pipe;
    logctx->logfile_path = log_path;
    
    logctx->portnum = http_port;
    logctx->sync_delay = sync_delay;
    logctx->running = 0;
    logctx->timeout = timeout;
+   logctx->max_lines = max_lines;
+   logctx->num_lines = 0;
+   logctx->methods = methods;
+   logctx->tmpfd = tmpfd;
+   logctx->logfile_dir = strdup( log_path_dir );
+   logctx->logfile_path = log_path;
    
    pthread_rwlock_init( &logctx->lock, NULL );
    sem_init( &logctx->sync_sem, 0, 0 );
+   sem_init( &logctx->rollover_sem, 0, 0 );
    
    return logctx;
 }
@@ -237,6 +183,11 @@ int log_free( struct log_context* logctx ) {
    if( logctx->logfile_path ) {
       free( logctx->logfile_path );
       logctx->logfile_path = NULL;
+   }
+   
+   if( logctx->logfile_dir ) {
+      free( logctx->logfile_dir );
+      logctx->logfile_dir = NULL;
    }
    
    if( logctx->hostname ) {
@@ -267,6 +218,10 @@ int log_free( struct log_context* logctx ) {
    
    pthread_rwlock_destroy( &logctx->lock );
    sem_destroy( &logctx->sync_sem );
+   sem_destroy( &logctx->rollover_sem );
+   
+   pclose( logctx->logfile_pipe );
+   close( logctx->tmpfd );
    
    memset( logctx, 0, sizeof(struct log_context) );
    free( logctx );
@@ -330,49 +285,60 @@ int log_stop_threads( struct log_context* logctx ) {
 }
 
 
-// swap logs atomically 
-// return the file stream to the old log, replacing the internal file stream and path name with the new log
-FILE* log_swap( struct log_context* logctx ) {
+// swap logs atomically, cleaning up the old log
+// save the path to the previous log, so it can be queued for synchronization
+int log_swap( struct log_context* logctx, char** ret_compressed_logfile_path ) {
    
    if( logctx == NULL ) {
-      return NULL;
+      return -EINVAL;
    }
    
    pthread_rwlock_wrlock( &logctx->lock );
    
    // new path 
-   char* new_logpath = log_make_path( LOG_PATH_FMT );
+   char* new_logpath = log_fullpath( logctx->logfile_dir, LOG_PATH_FMT, NULL );
+   
    if( new_logpath == NULL ) {
       
       pthread_rwlock_unlock( &logctx->lock );
       
-      fprintf(stderr, "log_swap: log_make_path failed\n");
-      return NULL;
+      fprintf(stderr, "log_swap: log_fullpath(%s) failed\n", logctx->logfile_dir);
+      return -EPERM;
    }
    
    // new logfile 
-   FILE* new_logfile = log_open( new_logpath );
-   if( new_logfile == NULL ) {
+   int new_tmpfd = -1;
+   FILE* new_logfile_pipe = log_open( new_logpath, &new_tmpfd );
+   if( new_logfile_pipe == NULL ) {
       
       pthread_rwlock_unlock( &logctx->lock );
       
       fprintf(stderr, "log_swap: log_open(%s) failed\n", new_logpath );
       
       free( new_logpath );
-      return NULL;
+      return -EPERM;
    }
    
    // swap the new logfile information in 
-   FILE* old_logfile = logctx->logfile;
+   FILE* old_logfile_pipe = logctx->logfile_pipe;
    char* old_logfile_path = logctx->logfile_path;
+   int old_tmpfd = logctx->tmpfd;
    
-   logctx->logfile = new_logfile;
+   logctx->logfile_pipe = new_logfile_pipe;
    logctx->logfile_path = new_logpath;
+   logctx->tmpfd = new_tmpfd;
+   
+   // reset line count
+   logctx->num_lines = 0;
    
    pthread_rwlock_unlock( &logctx->lock );
    
-   free( old_logfile_path );
-   return old_logfile;
+   pclose( old_logfile_pipe );
+   close( old_tmpfd );
+   
+   *ret_compressed_logfile_path = old_logfile_path;
+   
+   return 0;
 }
 
 
@@ -381,49 +347,16 @@ int log_rollover( struct log_context* ctx ) {
 
    int rc = 0;
    
-   // roll over and compress this log 
-   // get the current logfile path 
-   pthread_rwlock_rdlock( &ctx->lock );
-   
-   char* curr_logpath = strdup( ctx->logfile_path );
-   
-   pthread_rwlock_unlock( &ctx->lock );
-   
-   if( curr_logpath == NULL ) {
-      // out of memory 
-      return -ENOMEM;
-   }
-   
    // swap the logs
-   FILE* old_logfile = log_swap( ctx );
-   if( old_logfile != NULL ) {
-      
-      // swapped successfully.
-      size_t curr_logpath_len = strlen(curr_logpath);
-      char* compressed_logfile_path = (char*)calloc( curr_logpath_len + 5, 1 );
-      
-      if( compressed_logfile_path == NULL ) {
-         // OOM 
-         return -ENOMEM;
-      }
-      
-      snprintf( compressed_logfile_path, curr_logpath_len + 5, "%s.gz", curr_logpath );
-      
-      free( curr_logpath );
-      
-      // compress the log 
-      rc = log_compress( old_logfile, compressed_logfile_path );
-      if( rc != 0 ) {
-         
-         fprintf(stderr, "log_compress(%s) rc = %d\n", compressed_logfile_path, rc );
-         free( compressed_logfile_path );
-         return rc;
-      }
+   char* compressed_log_path = NULL;
+   rc = log_swap( ctx, &compressed_log_path );
+   
+   if( rc == 0 ) {
       
       // success! give it to the sync thread 
       pthread_rwlock_wrlock( &ctx->lock );
       
-      ctx->sync_buf->push_back( compressed_logfile_path );
+      ctx->sync_buf->push_back( compressed_log_path );
       
       pthread_rwlock_unlock( &ctx->lock );
       
@@ -432,10 +365,9 @@ int log_rollover( struct log_context* ctx ) {
    else {
       
       // fatal
-      fprintf(stderr, "Failed to roll over %s\n", curr_logpath );
-      free( curr_logpath );
+      fprintf(stderr, "Failed to roll over\n" );
       
-      return -EIO;
+      return rc;
    }
 }
 
@@ -451,14 +383,15 @@ void* log_rollover_thread( void* arg ) {
    
    while( ctx->running ) {
       
+      // wait for either the sync delay or a client wakeup to occur 
       struct timespec ts;
-      clock_gettime( CLOCK_MONOTONIC, &ts );
+      clock_gettime( CLOCK_REALTIME, &ts );
       
       // wait a bit 
       ts.tv_sec += ctx->sync_delay;
       
       while( ctx->running ) {
-         rc = clock_nanosleep( CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, NULL );
+         rc = sem_timedwait( &ctx->rollover_sem, &ts );
          
          if( rc != 0 ) {
             rc = -errno;
@@ -473,7 +406,7 @@ void* log_rollover_thread( void* arg ) {
                continue;
             }
             else {
-               fprintf(stderr, "clock_nanosleep errno = %d\n", rc);
+               fprintf(stderr, "sem_timedwait errno = %d\n", rc);
                break;
             }
          }
@@ -488,35 +421,15 @@ void* log_rollover_thread( void* arg ) {
          break;
       }
       
-      // roll over and compress this log 
-      // get the current logfile path 
+      // roll over and compress this log, if there is any data
       pthread_rwlock_rdlock( &ctx->lock );
       
-      char* curr_logpath = strdup( ctx->logfile_path );
+      int num_lines = ctx->num_lines;
       
       pthread_rwlock_unlock( &ctx->lock );
       
-      if( curr_logpath == NULL ) {
-         // OOM 
-         break;
-      }
-      
-      // is there any new data in this log?
-      struct stat sb;
-      rc = stat( curr_logpath, &sb );
-      
-      if( rc != 0 ) {
-         // should *never* happen--this is fatal
-         rc = -errno;
-         fprintf(stderr, "stat(%s) errno = %d\n", curr_logpath, rc );
-         
-         break;
-      }
-      
-      free( curr_logpath );
-   
       // don't even bother swapping if there's no new data 
-      if( sb.st_size == 0 ) {
+      if( num_lines == 0 ) {
          continue;
       }
       
