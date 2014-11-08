@@ -96,6 +96,14 @@ typedef struct PathCache {
 #endif
 } pathCache_t;
 
+typedef struct {
+    Hashtable *NonExistPathTable;
+    Hashtable *PathArrayTable;
+
+    pthread_mutex_t lock;
+    pthread_mutex_t *PathCacheLock;
+} PathCacheTable;
+
 typedef struct PathCacheQue {
     pathCache_t *top;
     pathCache_t *bottom;
@@ -172,7 +180,7 @@ int
 iFuseDescInuse ();
 int
 checkFuseDesc (int descInx);
-int
+PathCacheTable*
 initPathCache ();
 int
 getHashSlot (int value, int numHashSlot);
@@ -238,9 +246,9 @@ ifuseConnect (iFuseConn_t *iFuseConn, rodsEnv *myRodsEnv);
 int
 getNewlyCreatedDescByPath (char *path);
 int
-renmeLocalPath (char *from, char *to, char *toIrodsPath);
+renmeLocalPath(PathCacheTable *pctable, char *from, char *to, char *toIrodsPath);
 int	_chkCacheExpire (pathCacheQue_t *pathCacheQue);
-int _matchAndLockPathCache (char *inPath, pathCacheQue_t *pathQueArray, pathCache_t **outPathCache);
+int _matchAndLockPathCache (PathCacheTable *pctable, char *inPath, pathCacheQue_t *pathQueArray, pathCache_t **outPathCache);
 int _iFuseConnInuse (iFuseConn_t *iFuseConn);
 
 #ifdef  __cplusplus

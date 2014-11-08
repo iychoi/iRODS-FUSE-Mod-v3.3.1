@@ -18,6 +18,7 @@
 concurrentList_t *ConnectedConn;
 concurrentList_t *FreeConn;
 concurrentList_t *ConnReqWaitQue;
+static PathCacheTable *pctable;
 
 static int ConnManagerStarted = 0;
 
@@ -25,6 +26,7 @@ void initConn() {
 	ConnectedConn = newConcurrentList();
 	FreeConn = newConcurrentList();
 	ConnReqWaitQue = newConcurrentList();
+	pctable = initPathCache();
 }
 /* getIFuseConnByPath - try to use the same conn as opened desc of the
  * same path */
@@ -33,13 +35,14 @@ iFuseConn_t *getAndUseConnByPath (char *localPath, rodsEnv *myRodsEnv, int *stat
     iFuseConn_t *iFuseConn;
     /* make sure iFuseConn is not released after getAndLockIFuseDescByPath finishes */
     pathCache_t *tmpPathCache;
-    matchAndLockPathCache(localPath, &tmpPathCache);
+    matchAndLockPathCache(pctable, localPath, &tmpPathCache);
 
     if(tmpPathCache!=NULL) {
         *status = _getAndUseConnForPathCache (&iFuseConn, tmpPathCache);
     	UNLOCK_STRUCT (*tmpPathCache);
 	} else {
 		/* no match. just assign one */
+        pathExist(pctable, localPath, NULL, NULL, NULL); // need to find a way to clean up
 		*status = getAndUseIFuseConn (&iFuseConn, myRodsEnv);
 
 	}
@@ -71,7 +74,9 @@ int _getAndUseConnForPathCache(iFuseConn_t **iFuseConn, pathCache_t *paca) {
     }
 
     iFuseConn_t *tmpIFuseConn;
+    // UNLOCK_STRUCT( *paca );
 	status = getAndUseIFuseConn(&tmpIFuseConn, &MyRodsEnv);
+    // LOCK_STRUCT( *paca );
 	if(status < 0) {
 		rodsLog (LOG_ERROR,
 			  "ifuseClose: cannot get ifuse connection for %s error, status = %d",
@@ -79,12 +84,17 @@ int _getAndUseConnForPathCache(iFuseConn_t **iFuseConn, pathCache_t *paca) {
 		return status;
 	}
 
-	/* has been changed by other threads, or current paca->ifuseconn inuse,
-	 * return new ifuseconn without setting paca->ifuseconn */
-	/* conn in use, cannot be deleted by conn manager
-	 * therefore, it is safe to do the following without locking conn */
-	REF(paca->iFuseConn, tmpIFuseConn);
-	*iFuseConn = paca->iFuseConn;
+    // if ( paca->iFuseConn != NULL ) {
+	    /* has been changed by other threads, or current paca->ifuseconn inuse,
+	     * return new ifuseconn without setting paca->ifuseconn */
+    //  *iFuseConn = tmpIFuseConn;
+    //}
+    //else {
+	    /* conn in use, cannot be deleted by conn manager
+	     * therefore, it is safe to do the following without locking conn */
+	    REF(paca->iFuseConn, tmpIFuseConn);
+	    *iFuseConn = paca->iFuseConn;
+    //}
 	return 0;
 }
 

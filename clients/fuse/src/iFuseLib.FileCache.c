@@ -94,9 +94,9 @@ int _iFuseFileCacheFlush(fileCache_t *fileCache) {
     struct stat stbuf;
     stat(fileCache->fileCachePath, &stbuf);
     /* put cache file to server */
-	UNLOCK_STRUCT(*fileCache);
+	//UNLOCK_STRUCT(*fileCache);
     iFuseConn_t *conn = getAndUseConnByPath(fileCache->localPath, &MyRodsEnv, &status);
-	LOCK_STRUCT(*fileCache);
+	//LOCK_STRUCT(*fileCache);
 
     RECONNECT_IF_NECESSARY(status, conn, ifusePut (conn->conn, fileCache->objPath, fileCache->fileCachePath, fileCache->mode, stbuf.st_size));
     unuseIFuseConn(conn);
@@ -158,7 +158,7 @@ int ifuseFileCacheSwapOut (fileCache_t *fileCache) {
     LOCK_STRUCT(*fileCache);
 	/* simply return if no file cache or the file cache hasn't been updated */
     if (fileCache->state != HAVE_NEWLY_CREATED_CACHE) {
-    	UNLOCK_STRUCT(*fileCache);
+    	//UNLOCK_STRUCT(*fileCache);
     	return 0;
     }
 
@@ -225,9 +225,9 @@ int ifuseFileCacheClose(fileCache_t *fileCache) {
 	LOCK_STRUCT(*fileCache);
 	if(fileCache->state == NO_FILE_CACHE) {
 		/* close remote file */
-        UNLOCK_STRUCT( *fileCache );
+        //UNLOCK_STRUCT( *fileCache );
 		iFuseConn_t *conn = getAndUseConnByPath(fileCache->localPath, &MyRodsEnv, &status);
-        LOCK_STRUCT( *fileCache );
+        //LOCK_STRUCT( *fileCache );
 		status = closeIrodsFd (conn->conn, fileCache->iFd);
 		unuseIFuseConn(conn);
 		fileCache->offset = 0;
@@ -431,7 +431,9 @@ int _ifuseFileCacheRead (fileCache_t *fileCache, char *buf, size_t size, off_t o
         dataObjReadInp.l1descInx = fileCache->iFd;
         dataObjReadInp.len = size;
 
+        //UNLOCK_STRUCT(*fileCache);
         conn = getAndUseConnByPath(fileCache->localPath, &MyRodsEnv, &status);
+        //LOCK_STRUCT(*fileCache);
 
 		status = rcDataObjRead (conn->conn,
             		&dataObjReadInp, &dataObjReadOutBBuf);

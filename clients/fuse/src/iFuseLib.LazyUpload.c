@@ -25,6 +25,8 @@ static rodsArguments_t *LazyUploadRodsArgs;
 static Hashtable *LazyUploadBufferedFileTable_Created;
 static Hashtable *LazyUploadBufferedFileTable_Opened;
 
+extern PathCacheTable *pctable;
+
 /**************************************************************************
  * function definitions
  **************************************************************************/
@@ -459,7 +461,7 @@ _commitLocalBuffer(const char *iRODSPath, struct fuse_file_info *fi, lazyUploadF
         rodsLog (LOG_DEBUG, "_commitLocalBuffer: closing existing iRODS file handle - %s - %d", iRODSPath, descInx);
 
         status = ifuseClose (&IFuseDesc[descInx]);
-        clearPathFromCache((char *)iRODSPath);
+        clearPathFromCache(pctable, (char *)iRODSPath);
         if (status < 0) {
             int myError;
             if ((myError = getErrno (status)) > 0) {
@@ -512,12 +514,12 @@ _commitLocalBuffer(const char *iRODSPath, struct fuse_file_info *fi, lazyUploadF
         }
 
         fileCache_t *fileCache = addFileCache(fd, objPath, (char *) iRODSPath, NULL, stbuf.st_mode, stbuf.st_size, NO_FILE_CACHE);
-        matchAndLockPathCache((char *) iRODSPath, &tmpPathCache);
+        matchAndLockPathCache(pctable, (char *) iRODSPath, &tmpPathCache);
         if(tmpPathCache == NULL) {
-            pathExist((char *) iRODSPath, fileCache, &stbuf, NULL);
+            pathExist(pctable, (char *) iRODSPath, fileCache, &stbuf, NULL);
         } else {
             _addFileCacheForPath(tmpPathCache, fileCache);
-            UNLOCK_STRUCT(*tmpPathCache);
+            //UNLOCK_STRUCT(*tmpPathCache);
         }
 
         desc = newIFuseDesc (objPath, (char *) iRODSPath, fileCache, &status);
