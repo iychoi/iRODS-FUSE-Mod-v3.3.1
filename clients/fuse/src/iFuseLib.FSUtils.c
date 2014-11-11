@@ -371,7 +371,7 @@ getFileSizeRecursive(const char *path) {
 }
 
 off_t
-getEmptypSpace(const char *path) {
+getEmptySpace(const char *path) {
     struct statfs statfsbuf;
     int rc;
     off_t freesize = 0;

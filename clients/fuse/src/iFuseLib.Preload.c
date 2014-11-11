@@ -57,7 +57,7 @@ initPreload (preloadConfig_t *preloadConfig, rodsEnv *myPreloadRodsEnv, rodsArgu
     rodsLog (LOG_DEBUG, "initPreload: MyPreloadConfig.cachePath = %s", preloadConfig->cachePath);
     rodsLog (LOG_DEBUG, "initPreload: MyPreloadConfig.cacheMaxSize = %lld", preloadConfig->cacheMaxSize);
     rodsLog (LOG_DEBUG, "initPreload: MyPreloadConfig.preloadMinSize = %lld", preloadConfig->preloadMinSize);
-    rodsLog (LOG_DEBUG, "initPreload: empty space = %lld", getEmptypSpace(preloadConfig->cachePath));
+    rodsLog (LOG_DEBUG, "initPreload: empty space = %lld", getEmptySpace(preloadConfig->cachePath));
 
     // copy given configuration
     memcpy(&PreloadConfig, preloadConfig, sizeof(preloadConfig_t));
@@ -194,7 +194,7 @@ preloadFile (const char *path, struct stat *stbuf) {
             }
         }
 
-        freeSize = getEmptypSpace(PreloadConfig.cachePath);
+        freeSize = getEmptySpace(PreloadConfig.cachePath);
         if(freeSize < stbuf->st_size) {
             // evict?
             status = _evictOldCache(stbuf->st_size - freeSize);

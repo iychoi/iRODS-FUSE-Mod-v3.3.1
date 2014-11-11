@@ -519,7 +519,7 @@ _commitLocalBuffer(const char *iRODSPath, struct fuse_file_info *fi, lazyUploadF
             pathExist(pctable, (char *) iRODSPath, fileCache, &stbuf, NULL);
         } else {
             _addFileCacheForPath(tmpPathCache, fileCache);
-            //UNLOCK_STRUCT(*tmpPathCache);
+            UNLOCK_STRUCT(*tmpPathCache);
         }
 
         desc = newIFuseDesc (objPath, (char *) iRODSPath, fileCache, &status);
