@@ -77,7 +77,7 @@ int _iFuseFileCacheFlush(fileCache_t *fileCache) {
     int objFd;
 	/* simply return if no file cache or the file cache hasn't been updated */
     if (fileCache->state != HAVE_NEWLY_CREATED_CACHE) {
-    	UNLOCK_STRUCT(*fileCache);
+    	//UNLOCK_STRUCT(*fileCache);
     	return 0;
     }
 
@@ -155,10 +155,9 @@ int ifuseFileCacheSwapOut (fileCache_t *fileCache) {
 	/* flush local cache file to remote server */
     int objFd;
 
-    LOCK_STRUCT(*fileCache);
 	/* simply return if no file cache or the file cache hasn't been updated */
     if (fileCache->state != HAVE_NEWLY_CREATED_CACHE) {
-    	//UNLOCK_STRUCT(*fileCache);
+    	UNLOCK_STRUCT(*fileCache);
     	return 0;
     }
 

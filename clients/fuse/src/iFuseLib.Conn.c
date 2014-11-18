@@ -138,7 +138,10 @@ int _getAndUseIFuseConn (iFuseConn_t **iFuseConn, rodsEnv *myRodsEnv) {
 			        /* may cause num of conn > max num of conn */
 			        /* get here when nothing free. make one */
 			        tmpIFuseConn = newIFuseConn(&status);
-			        if (status < 0) return status;
+			        if (status < 0) {
+						_freeIFuseConn(tmpIFuseConn);
+						return status;
+					}
 
 			        _useFreeIFuseConn (tmpIFuseConn);
 			        addToConcurrentList(ConnectedConn, tmpIFuseConn);
@@ -254,6 +257,7 @@ ifuseConnect (iFuseConn_t *iFuseConn, rodsEnv *myRodsEnv)
 		if (iFuseConn->conn == NULL) {
 				rodsLogError (LOG_ERROR, errMsg.status,
 				  "ifuseConnect: rcConnect failure %s", errMsg.msg);
+				UNLOCK_STRUCT(*iFuseConn);
 				if (errMsg.status < 0) {
 					return (errMsg.status);
 				} else {
