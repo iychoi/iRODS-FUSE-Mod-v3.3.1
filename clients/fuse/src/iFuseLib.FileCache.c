@@ -35,7 +35,7 @@ int _iFuseFileCacheLseek(fileCache_t *fileCache, off_t offset) {
 		return 0;
 	}
 	if (fileCache->state == NO_FILE_CACHE) {
-	    iFuseConn_t *conn = getAndUseConnByPath(fileCache->localPath, &MyRodsEnv, &status);
+        iFuseConn_t *conn = getAndUseConnByPath( fileCache->localPath, &status );
 		openedDataObjInp_t dataObjLseekInp;
 		fileLseekOut_t *dataObjLseekOut = NULL;
 
@@ -46,15 +46,18 @@ int _iFuseFileCacheLseek(fileCache_t *fileCache, off_t offset) {
 
 		status = rcDataObjLseek(conn->conn, &dataObjLseekInp, &dataObjLseekOut);
 		unuseIFuseConn(conn);
-		if (dataObjLseekOut != NULL)
+        if ( dataObjLseekOut != NULL ) {
 			free(dataObjLseekOut);
+        }
 
-	} else {
+    }
+    else {
 		rodsLong_t lstatus;
 		lstatus = lseek(fileCache->iFd, offset, SEEK_SET);
 		if (lstatus >= 0) {
 			status = 0;
-		} else {
+        }
+        else {
 			status = lstatus;
 		}
 	}
@@ -95,7 +98,7 @@ int _iFuseFileCacheFlush(fileCache_t *fileCache) {
     stat(fileCache->fileCachePath, &stbuf);
     /* put cache file to server */
 	//UNLOCK_STRUCT(*fileCache);
-    iFuseConn_t *conn = getAndUseConnByPath(fileCache->localPath, &MyRodsEnv, &status);
+    iFuseConn_t *conn = getAndUseConnByPath( fileCache->localPath, &status );
 	//LOCK_STRUCT(*fileCache);
 
     RECONNECT_IF_NECESSARY(status, conn, ifusePut (conn->conn, fileCache->objPath, fileCache->fileCachePath, fileCache->mode, stbuf.st_size));
@@ -126,7 +129,8 @@ int _iFuseFileCacheFlush(fileCache_t *fileCache) {
 	    fileCache->state = NO_FILE_CACHE;
 	    fileCache->offset = 0;
 		status = objFd;
-	} else {
+    }
+    else {
 		fileCache->state = HAVE_READ_CACHE;
 	}
 
@@ -145,11 +149,13 @@ int _iFuseFileCacheFlush(fileCache_t *fileCache) {
 				path);
 		savedStatus = -EBADF; */
 
-    return (status);
+    return status;
 }
 int ifuseFileCacheSwapOut (fileCache_t *fileCache) {
     int status = 0;
-	if (fileCache == NULL) return USER__NULL_INPUT_ERR;
+    if ( fileCache == NULL ) {
+        return USER__NULL_INPUT_ERR;
+    }
 	LOCK_STRUCT(*fileCache);
 
 	/* flush local cache file to remote server */
@@ -174,7 +180,7 @@ int ifuseFileCacheSwapOut (fileCache_t *fileCache) {
     struct stat stbuf;
     stat(fileCache->fileCachePath, &stbuf);
     /* put cache file to server */
-    iFuseConn_t *conn = getAndUseConnByPath(fileCache->localPath, &MyRodsEnv, &status);
+    iFuseConn_t *conn = getAndUseConnByPath( fileCache->localPath, &status );
     RECONNECT_IF_NECESSARY(status, conn, ifusePut (conn->conn, fileCache->objPath, fileCache->fileCachePath, fileCache->mode, stbuf.st_size));
     unuseIFuseConn(conn);
 
@@ -215,7 +221,7 @@ int ifuseFileCacheSwapOut (fileCache_t *fileCache) {
 				path);
 		savedStatus = -EBADF; */
 
-    return (status);
+    return status;
 
 }
 /* close any open files inside the file cache */
@@ -225,12 +231,13 @@ int ifuseFileCacheClose(fileCache_t *fileCache) {
 	if(fileCache->state == NO_FILE_CACHE) {
 		/* close remote file */
         //UNLOCK_STRUCT( *fileCache );
-		iFuseConn_t *conn = getAndUseConnByPath(fileCache->localPath, &MyRodsEnv, &status);
+        iFuseConn_t *conn = getAndUseConnByPath( fileCache->localPath, &status );
         //LOCK_STRUCT( *fileCache );
 		status = closeIrodsFd (conn->conn, fileCache->iFd);
 		unuseIFuseConn(conn);
 		fileCache->offset = 0;
-	} else {
+    }
+    else {
 		/* close local file */
 		status = close( fileCache->iFd );
 		fileCache->iFd = 0;
@@ -240,14 +247,14 @@ int ifuseFileCacheClose(fileCache_t *fileCache) {
 	return status;
 }
 
-fileCache_t *addFileCache (int iFd, char *objPath, char *localPath, char *cachePath, int mode, rodsLong_t fileSize, cacheState_t state)
-{
+fileCache_t *addFileCache( int iFd, char *objPath, char *localPath, char *cachePath, int mode, rodsLong_t fileSize, cacheState_t state ) {
     uint cachedTime = time (0);
     fileCache_t *fileCache, *swapCache;
 
     if(state == NO_FILE_CACHE) {
     	return newFileCache(iFd, objPath, localPath, cachePath, cachedTime, mode, fileSize, state);
-    } else {
+    }
+    else {
 
 		fileCache = newFileCache(iFd, objPath, localPath, cachePath, cachedTime, mode, fileSize, state);
 		LOCK_STRUCT (*FileCacheList);
@@ -268,30 +275,29 @@ fileCache_t *addFileCache (int iFd, char *objPath, char *localPath, char *cacheP
 }
 
 int
-getFileCachePath (const char *inPath, char *cacehPath)
-{
+getFileCachePath( const char *inPath, char *cachePath ) {
     char myDir[MAX_NAME_LEN], myFile[MAX_NAME_LEN];
     struct stat statbuf;
 
-    if (inPath == NULL || cacehPath == NULL) {
+    if ( inPath == NULL || cachePath == NULL ) {
         rodsLog (LOG_ERROR,
-          "getFileCachePath: input inPath or cacehPath is NULL");
-        return (SYS_INTERNAL_NULL_INPUT_ERR);
+                 "getFileCachePath: input inPath or cachePath is NULL" );
+        return SYS_INTERNAL_NULL_INPUT_ERR;
     }
-    splitPathByKey ((char *) inPath, myDir, myFile, '/');
+    splitPathByKey( ( char * ) inPath, myDir, myFile, '/' );
 
-    while (1)
-    {
-        snprintf (cacehPath, MAX_NAME_LEN, "%s/%s.%d", FuseCacheDir,
+    while ( 1 ) {
+        snprintf( cachePath, MAX_NAME_LEN, "%s/%s.%d", FuseCacheDir,
           myFile, (int) random ());
-        if (stat (cacehPath, &statbuf) < 0) break;
+        if ( stat( cachePath, &statbuf ) < 0 ) {
+            break;
+        }
     }
     return 0;
 }
 
 int
-setAndMkFileCacheDir ()
-{
+setAndMkFileCacheDir() {
     char *tmpStr, *tmpDir;
     struct passwd *myPasswd;
     int status;
@@ -300,7 +306,8 @@ setAndMkFileCacheDir ()
 
     if ((tmpStr = getenv ("FuseCacheDir")) != NULL && strlen (tmpStr) > 0) {
 	tmpDir = tmpStr;
-    } else {
+    }
+    else {
 	tmpDir = FUSE_CACHE_DIR;
     }
 
@@ -313,12 +320,11 @@ setAndMkFileCacheDir ()
 	  FuseCacheDir, status);
     }
 
-    return (status);
+    return status;
 
 }
 
 int _ifuseFileCacheWrite (fileCache_t *fileCache, char *buf, size_t size, off_t offset) {
-
     int status, myError;
     openedDataObjInp_t dataObjWriteInp;
     bytesBuf_t dataObjWriteInpBBuf;
@@ -329,8 +335,9 @@ int _ifuseFileCacheWrite (fileCache_t *fileCache, char *buf, size_t size, off_t 
     status = _iFuseFileCacheLseek(fileCache, offset);
     if (status < 0) {
         if ((myError = getErrno (status)) > 0) {
-            return (-myError);
-        } else {
+            return -myError;
+        }
+        else {
             return -ENOENT;
         }
     }
@@ -343,16 +350,18 @@ int _ifuseFileCacheWrite (fileCache_t *fileCache, char *buf, size_t size, off_t 
         dataObjWriteInp.l1descInx = fileCache->iFd;
         dataObjWriteInp.len = size;
 
-        conn = getAndUseConnByPath(fileCache->localPath, &MyRodsEnv, &status);
+        conn = getAndUseConnByPath( fileCache->localPath, &status );
 		status = rcDataObjWrite (conn->conn, &dataObjWriteInp, &dataObjWriteInpBBuf);
 		unuseIFuseConn (conn);
 		if (status < 0) {
 			if ((myError = getErrno (status)) > 0) {
-				return (-myError);
-			} else {
+                return -myError;
+            }
+            else {
 				return -ENOENT;
 			}
-		} else if (status != (int) size) {
+        }
+        else if ( status != ( int ) size ) {
 			rodsLog (LOG_ERROR,
 					"ifuseWrite: IFuseDesc[descInx].conn for %s is NULL", fileCache->localPath);
 			return -ENOENT;
@@ -361,18 +370,18 @@ int _ifuseFileCacheWrite (fileCache_t *fileCache, char *buf, size_t size, off_t 
 		if(fileCache->offset > fileCache->fileSize) {
 			fileCache->fileSize = fileCache->offset;
 		}
-    } else {
+    }
+    else {
         status = write (fileCache->iFd, buf, size);
-
-        if (status < 0) return (errno ? (-1 * errno) : -1);
+        if ( status < 0 ) {
+            return errno ? ( -1 * errno ) : -1;
+        }
         fileCache->offset += status;
 		if(fileCache->offset > fileCache->fileSize) {
 			fileCache->fileSize = fileCache->offset;
 		}
 		if (fileCache->offset >= MAX_NEWLY_CREATED_CACHE_SIZE) {
 			_iFuseFileCacheFlush(fileCache);
-
-// Added to fix a bug
             fileCache->iFd = 0;
             /* reopen file */
             dataObjInp_t dataObjOpenInp;
@@ -381,7 +390,7 @@ int _ifuseFileCacheWrite (fileCache_t *fileCache, char *buf, size_t size, off_t 
             dataObjOpenInp.openFlags = O_RDWR;
 
             int status;
-            conn = getAndUseConnByPath(fileCache->localPath, &MyRodsEnv, &status);
+            conn = getAndUseConnByPath( fileCache->localPath, &status );
             status = rcDataObjOpen (conn->conn, &dataObjOpenInp);
             unuseIFuseConn (conn);
                    
@@ -391,7 +400,6 @@ int _ifuseFileCacheWrite (fileCache_t *fileCache, char *buf, size_t size, off_t 
             }
 
             fileCache->iFd = status;
-// end of fix
 		}
     }
     return status;
@@ -404,15 +412,15 @@ int ifuseFileCacheWrite (fileCache_t *fileCache, char *buf, size_t size, off_t o
 	UNLOCK_STRUCT(*fileCache);
     return status;
 }
-int _ifuseFileCacheRead (fileCache_t *fileCache, char *buf, size_t size, off_t offset)
-{
+int _ifuseFileCacheRead( fileCache_t *fileCache, char *buf, size_t size, off_t offset ) {
     int status, myError;
 
     status = _iFuseFileCacheLseek(fileCache, offset);
     if (status < 0) {
         if ((myError = getErrno (status)) > 0) {
-            return (-myError);
-        } else {
+            return -myError;
+        }
+        else {
             return -ENOENT;
         }
     }
@@ -429,25 +437,27 @@ int _ifuseFileCacheRead (fileCache_t *fileCache, char *buf, size_t size, off_t o
         dataObjReadOutBBuf.len = size;
         dataObjReadInp.l1descInx = fileCache->iFd;
         dataObjReadInp.len = size;
-
         //UNLOCK_STRUCT(*fileCache);
-        conn = getAndUseConnByPath(fileCache->localPath, &MyRodsEnv, &status);
+        conn = getAndUseConnByPath( fileCache->localPath, &status );
         //LOCK_STRUCT(*fileCache);
-
 		status = rcDataObjRead (conn->conn,
             		&dataObjReadInp, &dataObjReadOutBBuf);
 		unuseIFuseConn (conn);
 		if (status < 0) {
 			if ((myError = getErrno (status)) > 0) {
-				return (-myError);
-			} else {
+                return -myError;
+            }
+            else {
 				return -ENOENT;
 			}
 		}
-    } else {
+    }
+    else {
     	status = read (fileCache->iFd, buf, size);
 
-    	if (status < 0) return (errno ? (-1 * errno) : -1);
+        if ( status < 0 ) {
+            return errno ? ( -1 * errno ) : -1;
+    }
     }
     fileCache->offset += status;
 

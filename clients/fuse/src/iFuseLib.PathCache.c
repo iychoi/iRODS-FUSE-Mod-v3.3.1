@@ -12,9 +12,7 @@
 #include "restructs.h"
 #include "iFuseLib.Lock.h"
 
-PathCacheTable* 
-initPathCache ()
-{
+PathCacheTable *initPathCache() {
     PathCacheTable *pctable = (PathCacheTable *) malloc(sizeof (PathCacheTable));
     pctable->PathCacheLock = &pctable->lock;
     pctable->NonExistPathTable = newHashTable(NUM_PATH_HASH_SLOT);
@@ -24,8 +22,7 @@ initPathCache ()
 }
 
 int
-matchAndLockPathCache (PathCacheTable *pctable, char *inPath, pathCache_t **outPathCache)
-{
+matchAndLockPathCache( PathCacheTable *pctable, char *inPath, pathCache_t **outPathCache ) {
     int status;
     LOCK(*pctable->PathCacheLock);
     status = _matchAndLockPathCache(pctable, inPath, outPathCache);
@@ -34,8 +31,7 @@ matchAndLockPathCache (PathCacheTable *pctable, char *inPath, pathCache_t **outP
 }
 
 int
-_matchAndLockPathCache (PathCacheTable *pctable, char *inPath, pathCache_t **outPathCache)
-{
+_matchAndLockPathCache( PathCacheTable *pctable, char *inPath, pathCache_t **outPathCache ) {
 	*outPathCache = (pathCache_t *)lookupFromHashTable(pctable->PathArrayTable, inPath);
 
 	if(*outPathCache!=NULL) {
@@ -47,8 +43,7 @@ _matchAndLockPathCache (PathCacheTable *pctable, char *inPath, pathCache_t **out
 }
 
 int
-addPathToCache (pthread_mutex_t *PathCacheLock, char *inPath, fileCache_t *fileCache, Hashtable *pathQueArray, struct stat *stbuf, pathCache_t **outPathCache)
-{
+addPathToCache( pthread_mutex_t *PathCacheLock, char *inPath, fileCache_t *fileCache, Hashtable *pathQueArray, struct stat *stbuf, pathCache_t **outPathCache ) {
     int status;
 
     LOCK (*PathCacheLock);
@@ -58,19 +53,17 @@ addPathToCache (pthread_mutex_t *PathCacheLock, char *inPath, fileCache_t *fileC
 }
 
 int
-_addPathToCache (char *inPath, fileCache_t *fileCache, Hashtable *pathQueArray, struct stat *stbuf, pathCache_t **outPathCache)
-{
+_addPathToCache( char *inPath, fileCache_t *fileCache, Hashtable *pathQueArray, struct stat *stbuf, pathCache_t **outPathCache ) {
     pathCache_t *tmpPathCache = newPathCache(inPath, fileCache, stbuf, time(0));
     insertIntoHashTable(pathQueArray, inPath, tmpPathCache);
     if(outPathCache!=NULL) {
     	*outPathCache = tmpPathCache;
     }
-    return (0);
+    return 0;
 }
 
 int
-rmPathFromCache (pthread_mutex_t *PathCacheLock, char *inPath, Hashtable *pathQueArray)
-{
+rmPathFromCache( pthread_mutex_t *PathCacheLock, char *inPath, Hashtable *pathQueArray ) {
     int status;
     LOCK (*PathCacheLock);
     status = _rmPathFromCache (inPath, pathQueArray);
@@ -79,14 +72,14 @@ rmPathFromCache (pthread_mutex_t *PathCacheLock, char *inPath, Hashtable *pathQu
 }
 
 int
-_rmPathFromCache (char *inPath, Hashtable *pathQueArray)
-{
+_rmPathFromCache( char *inPath, Hashtable *pathQueArray ) {
     pathCache_t *tmpPathCache = (pathCache_t *) deleteFromHashTable(pathQueArray, inPath);
 
     if(tmpPathCache!=NULL) {
     	_freePathCache (tmpPathCache);
 	    return 1;
-	} else {
+    }
+    else {
 	    return 0;
     }
 }
@@ -99,8 +92,7 @@ int updatePathCacheStatFromFileCache (pathCache_t *tmpPathCache) {
 	return status;
 
 }
-int _updatePathCacheStatFromFileCache (pathCache_t *tmpPathCache)
-{
+int _updatePathCacheStatFromFileCache( pathCache_t *tmpPathCache ) {
     int status;
 
 	tmpPathCache->stbuf.st_size = tmpPathCache->fileCache->fileSize;
@@ -109,8 +101,9 @@ int _updatePathCacheStatFromFileCache (pathCache_t *tmpPathCache)
 		status = stat (tmpPathCache->fileCache->fileCachePath, &stbuf);
 		if (status < 0) {
 			UNLOCK_STRUCT(*(tmpPathCache->fileCache));
-			return (errno ? (-1 * errno) : -1);
-		} else {
+            return errno ? ( -1 * errno ) : -1;
+        }
+        else {
 			/* update the size */
 			tmpPathCache->stbuf.st_uid = stbuf.st_uid;
 			tmpPathCache->stbuf.st_gid = stbuf.st_gid;
@@ -121,7 +114,8 @@ int _updatePathCacheStatFromFileCache (pathCache_t *tmpPathCache)
 			UNLOCK_STRUCT(*(tmpPathCache->fileCache));
 			return 0;
 		}
-	} else {
+    }
+    else {
 		return 0;
 	}
 }

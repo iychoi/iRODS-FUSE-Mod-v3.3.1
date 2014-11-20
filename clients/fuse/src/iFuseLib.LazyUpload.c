@@ -501,8 +501,8 @@ _commitLocalBuffer(const char *iRODSPath, struct fuse_file_info *fi, lazyUploadF
             return -ENOTDIR;
         }
 
-        iFuseConn = getAndUseConnByPath((char *) iRODSPath, LazyUploadRodsEnv, &status);
-        /* status = getAndUseIFuseConn(&iFuseConn, &MyRodsEnv); */
+        iFuseConn = getAndUseConnByPath((char *) iRODSPath, &status);
+        /* status = getAndUseIFuseConn(&iFuseConn); */
         if(status < 0) {
             rodsLogError (LOG_ERROR, status, "_commitLocalBuffer: cannot get connection for %s error", iRODSPath);
             /* use ENOTDIR for this type of error */

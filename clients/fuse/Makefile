@@ -18,9 +18,6 @@ include $(buildDir)/config/platform.mk
 include $(buildDir)/config/directories.mk
 include $(buildDir)/config/common.mk
 
-
-
-
 #
 # Directories
 #

@@ -279,7 +279,7 @@ irodsOper.flush = irodsFlush;
         printf("Use -h for help.\n");
         exit (1);
     }
-    if (myRodsArgs.help==True) {
+    if ( myRodsArgs.help == True ) {
        usage();
        exit(0);
     }
@@ -287,7 +287,9 @@ irodsOper.flush = irodsFlush;
     srandom((unsigned int) time(0) % getpid());
 
 #ifdef CACHE_FILE_FOR_READ
-    if (setAndMkFileCacheDir () < 0) exit (1);
+    if (setAndMkFileCacheDir () < 0) {
+		exit (1);
+	}
 #endif
 
     initPathCache ();
@@ -349,7 +351,8 @@ irodsOper.flush = irodsFlush;
 
     if (status < 0) {
         exit (3);
-    } else {
+    }
+    else {
         exit(0);
     }
 }
@@ -524,8 +527,7 @@ releaseCmdLineOpt (int argc, char **argv) {
 }
 
 void
-usage ()
-{
+usage() {
    char *msgs[]={
    "Usage : irodsFs [-hd] [-o opt,[opt...]]",
 "Single user iRODS/Fuse server",

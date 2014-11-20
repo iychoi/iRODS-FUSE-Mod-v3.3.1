@@ -22,7 +22,6 @@
 /* some global variables */
 
 rodsEnv MyRodsEnv;
-
 extern PathCacheTable *pctable;
 
 static specialPath_t SpecialPath[] = {
@@ -42,8 +41,7 @@ static int NumSpecialPath = sizeof (SpecialPath) / sizeof (specialPath_t);
 
 
 int
-isSpecialPath (char *inPath)
-{
+isSpecialPath (char *inPath) {
     int len;
     char *endPtr;
     int i;
@@ -51,15 +49,18 @@ isSpecialPath (char *inPath)
     if (inPath == NULL) {
         rodsLog (LOG_ERROR,
           "isSpecialPath: input inPath is NULL");
-        return (SYS_INTERNAL_NULL_INPUT_ERR);
+        return SYS_INTERNAL_NULL_INPUT_ERR;
     }
 
     len = strlen (inPath);
     endPtr = inPath + len;
     for (i = 0; i < NumSpecialPath; i++) {
-	if (len < SpecialPath[i].len) continue;
-	if (strcmp (SpecialPath[i].path, endPtr - SpecialPath[i].len) == 0)
-	    return (1);
+        if ( len < SpecialPath[i].len ) {
+            continue;
+        }
+        if ( strcmp( SpecialPath[i].path, endPtr - SpecialPath[i].len ) == 0 ) {
+            return 1;
+        }
     }
     return 0;
 }
@@ -72,8 +73,7 @@ isSpecialPath (char *inPath)
 
 int
 ifusePut (rcComm_t *conn, char *objPath, char *cachePath, int mode,
-rodsLong_t srcSize)
-{
+rodsLong_t srcSize) {
     dataObjInp_t dataObjInp;
     int status;
 
@@ -90,7 +90,7 @@ rodsLong_t srcSize)
     }
 
     status = rcDataObjPut (conn, &dataObjInp, cachePath);
-    return (status);
+    return status;
 }
 
 
@@ -101,8 +101,7 @@ rodsLong_t srcSize)
 
 
 int
-closeIrodsFd (rcComm_t *conn, int fd)
-{
+closeIrodsFd (rcComm_t *conn, int fd) {
     int status;
 
     openedDataObjInp_t dataObjCloseInp;
@@ -110,18 +109,19 @@ closeIrodsFd (rcComm_t *conn, int fd)
     bzero (&dataObjCloseInp, sizeof (dataObjCloseInp));
     dataObjCloseInp.l1descInx = fd;
     status = rcDataObjClose (conn, &dataObjCloseInp);
-    return (status);
+    return status;
 }
 
 
 int
 fillFileStat (struct stat *stbuf, uint mode, rodsLong_t size, uint ctime,
-uint mtime, uint atime)
-{
-    if (mode >= 0100)
+uint mtime, uint atime) {
+    if ( mode >= 0100 ) {
         stbuf->st_mode = S_IFREG | mode;
-    else
+    }
+    else {
         stbuf->st_mode = S_IFREG | DEF_FILE_MODE;
+    }
     stbuf->st_size = size;
 
     stbuf->st_blksize = FILE_BLOCK_SZ;
@@ -139,8 +139,7 @@ uint mtime, uint atime)
 }
 
 int
-fillDirStat (struct stat *stbuf, uint ctime, uint mtime, uint atime)
-{
+fillDirStat (struct stat *stbuf, uint ctime, uint mtime, uint atime) {
     stbuf->st_mode = S_IFDIR | DEF_DIR_MODE;
     stbuf->st_size = DIR_SZ;
 
@@ -157,13 +156,13 @@ fillDirStat (struct stat *stbuf, uint ctime, uint mtime, uint atime)
 
 /* need to call getIFuseConn before calling irodsMknodWithCache */
 int
-irodsMknodWithCache (char *path, mode_t mode, char *cachePath)
-{
+irodsMknodWithCache (char *path, mode_t mode, char *cachePath) {
     int status;
     int fd;
 
-    if ((status = getFileCachePath (path, cachePath)) < 0)
+    if ( ( status = getFileCachePath( path, cachePath ) ) < 0 ) {
         return status;
+    }
 
     /* fd = creat (cachePath, mode); WRONLY */
     fd = open (cachePath, O_CREAT|O_EXCL|O_RDWR, mode);
@@ -171,8 +170,9 @@ irodsMknodWithCache (char *path, mode_t mode, char *cachePath)
         rodsLog (LOG_ERROR,
           "irodsMknodWithCache: local cache creat error for %s, errno = %d",
           cachePath, errno);
-        return(errno ? (-1 * errno) : -1);
-    } else {
+        return errno ? ( -1 * errno ) : -1;
+    }
+    else {
         return fd;
     }
 }
@@ -181,9 +181,8 @@ irodsMknodWithCache (char *path, mode_t mode, char *cachePath)
 
 
 int
-dataObjCreateByFusePath (rcComm_t *conn, char *path, int mode, 
-char *irodsPath)
-{
+dataObjCreateByFusePath( rcComm_t *conn, int mode,
+                         char *irodsPath ) {
     dataObjInp_t dataObjInp;
     int status;
 
@@ -208,8 +207,7 @@ char *irodsPath)
 }
 
 int
-renmeLocalPath (PathCacheTable *pctable, char *from, char *to, char *toIrodsPath)
-{
+renmeLocalPath( PathCacheTable *pctable, char *from, char *to, char *toIrodsPath ) {
     pathCache_t *fromPathCache = NULL;
     pathCache_t *tmpPathCache = NULL;
 
@@ -230,8 +228,10 @@ renmeLocalPath (PathCacheTable *pctable, char *from, char *to, char *toIrodsPath
 		_pathReplace(pctable, (char *) to, fromPathCache->fileCache, &fromPathCache->stbuf, &tmpPathCache);
 
 		UNLOCK_STRUCT(*(fromPathCache->fileCache));
-	} else {
+    }
+    else {
         _pathReplace(pctable, (char *) to, NULL /* fromPathCache->fileCache */, &fromPathCache->stbuf, &tmpPathCache);
+
 	}
 
 	/* need to unlock fileCache here since the following function call ness to lock fileCache */

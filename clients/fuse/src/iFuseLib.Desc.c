@@ -19,8 +19,7 @@ iFuseDesc_t IFuseDesc[MAX_IFUSE_DESC];
 concurrentList_t *IFuseDescFreeList;
 
 int
-initIFuseDesc ()
-{
+initIFuseDesc() {
 #ifndef USE_BOOST
     //pthread_mutex_init (&PathCacheLock, NULL);
     pthread_mutex_init (&ConnManagerLock, NULL);
@@ -36,7 +35,7 @@ initIFuseDesc ()
     }
 #endif
     // JMC - overwrites objects construction? -  memset (IFuseDesc, 0, sizeof (iFuseDesc_t) * MAX_IFUSE_DESC);
-    return (0);
+    return 0;
 }
 
 int _lockDesc(iFuseDesc_t *desc) {
@@ -46,7 +45,8 @@ int _lockDesc(iFuseDesc_t *desc) {
 #ifdef USE_BOOST
     try {
        desc->mutex->lock();
-    } catch( boost::thread_resource_error ) {
+    }
+    catch ( boost::thread_resource_error ) {
        status = -1;
     }
 #else
@@ -56,14 +56,13 @@ int _lockDesc(iFuseDesc_t *desc) {
 }
 
 int
-lockDesc (int descInx)
-{
+lockDesc( int descInx ) {
     int status;
 
     if (descInx < 3 || descInx >= MAX_IFUSE_DESC) {
         rodsLog (LOG_ERROR,
          "lockDesc: descInx %d out of range", descInx);
-        return (SYS_FILE_DESC_OUT_OF_RANGE);
+        return SYS_FILE_DESC_OUT_OF_RANGE;
     }
     status = _lockDesc(&IFuseDesc[descInx]);
     return status;
@@ -74,7 +73,8 @@ int _unlockDesc(iFuseDesc_t *desc) {
 #ifdef USE_BOOST
     try {
         desc->mutex->unlock();
-    } catch ( boost::thread_resource_error ) {
+    }
+    catch ( boost::thread_resource_error ) {
         status = -1;
     }
 #else
@@ -83,35 +83,32 @@ int _unlockDesc(iFuseDesc_t *desc) {
     return status;
 }
 
-int unlockDesc (int descInx)
-{
+int unlockDesc( int descInx ) {
     int status;
 
     if (descInx < 3 || descInx >= MAX_IFUSE_DESC) {
         rodsLog (LOG_ERROR,
          "unlockDesc: descInx %d out of range", descInx);
-        return (SYS_FILE_DESC_OUT_OF_RANGE);
+        return SYS_FILE_DESC_OUT_OF_RANGE;
     }
     status = _unlockDesc(&IFuseDesc[descInx]);
     return status;
 }
 
 int
-checkFuseDesc (int descInx)
-{
+checkFuseDesc( int descInx ) {
     if (descInx < 3 || descInx >= MAX_IFUSE_DESC) {
         rodsLog (LOG_ERROR,
          "checkFuseDesc: descInx %d out of range", descInx);
-        return (SYS_FILE_DESC_OUT_OF_RANGE);
+        return SYS_FILE_DESC_OUT_OF_RANGE;
     }
 
-    return (0);
+    return 0;
 }
 
 /* close a iFuse file */
 int
-ifuseClose (iFuseDesc_t *desc)
-{
+ifuseClose( iFuseDesc_t *desc ) {
 	int status;
 
     LOCK_STRUCT(*desc);
@@ -140,8 +137,7 @@ ifuseClose (iFuseDesc_t *desc)
 	return status;
 }
 int
-ifuseFlush (int descInx)
-{
+ifuseFlush( int descInx ) {
     int status;
     LOCK_STRUCT(IFuseDesc[descInx]);
 	status = _ifuseFlush (&IFuseDesc[descInx]);
@@ -153,8 +149,7 @@ ifuseFlush (int descInx)
 
 /* precond: lock desc */
 int
-_ifuseFlush (iFuseDesc_t *desc)
-{
+_ifuseFlush( iFuseDesc_t *desc ) {
 	int status;
 	status = iFuseFileCacheFlush(desc->fileCache);
 	if(status < 0) {
@@ -171,8 +166,7 @@ _ifuseFlush (iFuseDesc_t *desc)
 
 /* precond: lock desc */
 int
-_ifuseWrite (iFuseDesc_t *desc, char *buf, size_t size, off_t offset)
-{
+_ifuseWrite( iFuseDesc_t *desc, char *buf, size_t size, off_t offset ) {
 	int status = ifuseFileCacheWrite(desc->fileCache, buf, size, offset);
 	if(status < 0) {
 		rodsLogError(LOG_ERROR, status, "ifuseWrite: write of %s error",
@@ -197,8 +191,7 @@ int _ifuseRead(iFuseDesc_t *desc, char *buf, size_t size, off_t offset) {
 
 /* precond: lock desc */
 int
-_ifuseLseek (iFuseDesc_t *desc, off_t offset)
-{
+_ifuseLseek( iFuseDesc_t *desc, off_t offset ) {
     int status;
 
 
@@ -209,10 +202,11 @@ _ifuseLseek (iFuseDesc_t *desc, off_t offset)
 			rodsLogError(LOG_ERROR, status, "ifuseLseek: lseek of %s error",
 					desc->localPath);
 			return status;
-		} else {
+        }
+        else {
 			desc->offset = offset;
 		}
 
 	}
-	return (0);
+    return 0;
 }

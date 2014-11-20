@@ -13,7 +13,9 @@
 
 fileCache_t *newFileCache(int iFd, char *objPath, char *localPath, char *cacheFilePath, time_t cachedTime, int mode, rodsLong_t fileSize, cacheState_t state) {
 	fileCache_t *fileCache = (fileCache_t *) malloc(sizeof(fileCache_t));
-	if (fileCache == NULL) return NULL;
+    if ( fileCache == NULL ) {
+        return NULL;
+    }
 	fileCache->fileCachePath = cacheFilePath == NULL?NULL:strdup(cacheFilePath);
     fileCache->localPath = strdup(localPath);
     fileCache->objPath = strdup(objPath);
@@ -33,7 +35,9 @@ pathCache_t *newPathCache (char *inPath, fileCache_t *fileCache, struct stat *st
     pathCache_t *tmpPathCache;
 
     tmpPathCache = (pathCache_t *) malloc (sizeof (pathCache_t));
-    if (tmpPathCache == NULL) return NULL;
+    if ( tmpPathCache == NULL ) {
+        return NULL;
+    }
 
     tmpPathCache->localPath = strdup (inPath);
     tmpPathCache->cachedTime = cachedTime;
@@ -43,7 +47,8 @@ pathCache_t *newPathCache (char *inPath, fileCache_t *fileCache, struct stat *st
 	INIT_STRUCT_LOCK(*tmpPathCache);
     if (stbuf != NULL) {
     	tmpPathCache->stbuf = *stbuf;
-    } else {
+    }
+    else {
     	bzero(&(tmpPathCache->stbuf), sizeof(struct stat));
     }
     return tmpPathCache;
@@ -85,7 +90,8 @@ iFuseDesc_t *newIFuseDesc (char *objPath, char *localPath, fileCache_t *fileCach
         INIT_STRUCT_LOCK(*desc);
         *status = 0;
         return desc;
-	} else {
+    }
+    else {
 		UNLOCK_STRUCT(*IFuseDescFreeList);
 		rodsLog (LOG_ERROR,
 		  "allocIFuseDesc: Out of iFuseDesc");
@@ -105,8 +111,7 @@ int _freeFileCache(fileCache_t *fileCache) {
 }
 
 /* precond: lock tmpPathCache */
-int _freePathCache (pathCache_t *tmpPathCache)
-{
+int _freePathCache( pathCache_t *tmpPathCache ) {
     free (tmpPathCache->localPath);
     if(tmpPathCache->fileCache != NULL) {
     	UNREF(tmpPathCache->fileCache, FileCache);
@@ -117,14 +122,13 @@ int _freePathCache (pathCache_t *tmpPathCache)
 }
 
 /* precond: lock desc */
-int _freeIFuseDesc (iFuseDesc_t *desc)
-{
+int _freeIFuseDesc( iFuseDesc_t *desc ) {
     int i;
 
     if (desc->index < 3) {
         rodsLog (LOG_ERROR,
          "freeIFuseDesc: descInx %d out of range", desc->index);
-        return (SYS_FILE_DESC_OUT_OF_RANGE);
+        return SYS_FILE_DESC_OUT_OF_RANGE;
     }
 
 	for (i = 0; i < MAX_BUF_CACHE; i++) {
@@ -175,16 +179,18 @@ void removeFromConcurrentList2(concurrentList_t *l, void *v) {
 	UNLOCK_STRUCT(*l);
 
 }
-void removeFromConcurrentList(concurrentList_t *l, ListNode *v) {	LOCK_STRUCT(*l);
-listRemoveNoRegion(l->list, v);
-UNLOCK_STRUCT(*l);
+void removeFromConcurrentList( concurrentList_t *l, ListNode *v ) {
+    LOCK_STRUCT( *l );
+    listRemoveNoRegion(l->list, v);
+    UNLOCK_STRUCT(*l);
 }
 void* removeFirstElementOfConcurrentList(concurrentList_t *l) {
 	LOCK_STRUCT(*l);
 	void* tmp;
 	if(l->list->head == NULL) {
 		tmp = NULL;
-	} else {
+    }
+    else {
 		tmp = l->list->head->value;
 		listRemoveNoRegion(l->list, l->list->head);
 	}
@@ -196,7 +202,8 @@ void *removeLastElementOfConcurrentList(concurrentList_t *l) {
 	void* tmp;
 	if(l->list->head == NULL) {
 		tmp = NULL;
-	} else {
+    }
+    else {
 		tmp = l->list->tail->value;
 		listRemoveNoRegion(l->list, l->list->tail);
 	}
@@ -204,8 +211,7 @@ void *removeLastElementOfConcurrentList(concurrentList_t *l) {
 	return tmp;
 
 }
-int _listSize(concurrentList_t *l)
-{
+int _listSize( concurrentList_t *l ) {
     return l->list->size;
 }
 
@@ -224,6 +230,6 @@ void deleteConcurrentList(concurrentList_t *l) {
 /*#define FUSE_DEBUG 1*/
 
 /* dummy function */
-char *cpStringExt(char *str, Region *r) {
+char *cpStringExt( char *str, Region *r ) {
     return NULL;
 }

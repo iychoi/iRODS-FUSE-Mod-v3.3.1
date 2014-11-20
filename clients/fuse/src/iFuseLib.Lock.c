@@ -15,13 +15,13 @@
 #ifdef USE_BOOST
 	/*boost::mutex DescLock;*/
 	/* boost::mutex ConnLock;*/
-	boost::mutex PathCacheLock;
+	boost::mutex* PathCacheLock = new boost::mutex();
 	/* boost::mutex FileCacheLock; */
 	boost::thread*            ConnManagerThr;
-	boost::mutex              ConnManagerLock;
+	boost::mutex*             ConnManagerLock = new boost::mutex();
 	boost::condition_variable ConnManagerCond;
-    boost::mutex              PreloadLock;        
-    boost::mutex              LazyUploadLock;        
+    boost::mutex*             PreloadLock = new boost::mutex();
+    boost::mutex*             LazyUploadLock = new boost::mutex();
 #else
 	/*pthread_mutex_t DescLock;*/
 	/*pthread_mutex_t ConnLock;*/
@@ -59,13 +59,13 @@
 
 	}
 
-	void timeoutWait(boost::mutex &ConnManagerLock, boost::condition_variable &ConnManagerCond, int sleepTime) {
+	void timeoutWait( boost::mutex** ConnManagerLock, boost::condition_variable *ConnManagerCond, int sleepTime ) {
 		boost::system_time const tt=boost::get_system_time() + boost::posix_time::seconds( sleepTime );
-	        boost::unique_lock< boost::mutex > boost_lock( ConnManagerLock );
-	        ConnManagerCond.timed_wait( boost_lock, tt );
+	    boost::unique_lock< boost::mutex > boost_lock( **ConnManagerLock );
+    	ConnManagerCond->timed_wait( boost_lock, tt );
 	}
-	void notifyTimeoutWait(boost::mutex &ConnManagerLock, boost::condition_variable &ConnManagerCond) {
-		ConnManagerCond.notify_all( );
+	void notifyTimeoutWait( boost::mutex **ConnManagerLock, boost::condition_variable *ConnManagerCond ) {
+    	ConnManagerCond->notify_all( );
 	}
 #else
 /*#define UNLOCK(Lock) (pthread_mutex_unlock (&(Lock)))

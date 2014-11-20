@@ -136,7 +136,6 @@ typedef struct newlyCreatedFile {
 #define FUSE_FILE_CACHE_FREE(c) ((c).desc == NULL && (c).pathCache == NULL)
 
 #define FUSE_FILE_CACHE_EXPIRED(cacheTime, c) (cachedTime - (c).cachedTime  >= MAX_NEWLY_CREATED_TIME)
-
 #ifdef  __cplusplus
 extern "C" {
 #endif
@@ -232,8 +231,7 @@ ifuseFlush (int descInx);
 int
 _ifuseFlush (iFuseDesc_t *desc);
 int
-dataObjCreateByFusePath (rcComm_t *conn, char *path, int mode, 
-char *irodsPath);
+dataObjCreateByFusePath (rcComm_t *conn, int mode, char *irodsPath);
 int
 ifusePut (rcComm_t *conn, char *objPath, char *cachePath, int mode,
 rodsLong_t srcSize);
@@ -250,7 +248,6 @@ renmeLocalPath(PathCacheTable *pctable, char *from, char *to, char *toIrodsPath)
 int	_chkCacheExpire (pathCacheQue_t *pathCacheQue);
 int _matchAndLockPathCache (PathCacheTable *pctable, char *inPath, pathCacheQue_t *pathQueArray, pathCache_t **outPathCache);
 int _iFuseConnInuse (iFuseConn_t *iFuseConn);
-
 #ifdef  __cplusplus
 }
 #endif

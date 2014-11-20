@@ -30,8 +30,7 @@ void initConn() {
 }
 /* getIFuseConnByPath - try to use the same conn as opened desc of the
  * same path */
-iFuseConn_t *getAndUseConnByPath (char *localPath, rodsEnv *myRodsEnv, int *status)
-{
+iFuseConn_t *getAndUseConnByPath( char *localPath, int *status ) {
     iFuseConn_t *iFuseConn;
     /* make sure iFuseConn is not released after getAndLockIFuseDescByPath finishes */
     pathCache_t *tmpPathCache;
@@ -40,10 +39,11 @@ iFuseConn_t *getAndUseConnByPath (char *localPath, rodsEnv *myRodsEnv, int *stat
     if(tmpPathCache!=NULL) {
         *status = _getAndUseConnForPathCache (&iFuseConn, tmpPathCache);
     	UNLOCK_STRUCT (*tmpPathCache);
-	} else {
+    }
+    else {
 		/* no match. just assign one */
         pathExist(pctable, localPath, NULL, NULL, NULL); // need to find a way to clean up
-		*status = getAndUseIFuseConn (&iFuseConn, myRodsEnv);
+        *status = getAndUseIFuseConn( &iFuseConn );
 
 	}
 
@@ -63,10 +63,12 @@ int _getAndUseConnForPathCache(iFuseConn_t **iFuseConn, pathCache_t *paca) {
 				/* ifuseReconnect(paca->iFuseConn); */
 				*iFuseConn = paca->iFuseConn;
 				return 0;
-    		} else {
+            }
+            else {
 				UNLOCK_STRUCT(*(paca->iFuseConn));
     		}
-    	} else {
+        }
+        else {
     		UNLOCK_STRUCT(*(paca->iFuseConn));
     		/* disconnect by not freed yet */
 			UNREF(paca->iFuseConn, IFuseConn);
@@ -75,7 +77,7 @@ int _getAndUseConnForPathCache(iFuseConn_t **iFuseConn, pathCache_t *paca) {
 
     iFuseConn_t *tmpIFuseConn;
     // UNLOCK_STRUCT( *paca );
-	status = getAndUseIFuseConn(&tmpIFuseConn, &MyRodsEnv);
+    status = getAndUseIFuseConn( &tmpIFuseConn );
     // LOCK_STRUCT( *paca );
 	if(status < 0) {
 		rodsLog (LOG_ERROR,
@@ -83,7 +85,6 @@ int _getAndUseConnForPathCache(iFuseConn_t **iFuseConn, pathCache_t *paca) {
 			   paca->localPath, status);
 		return status;
 	}
-
     // if ( paca->iFuseConn != NULL ) {
 	    /* has been changed by other threads, or current paca->ifuseconn inuse,
 	     * return new ifuseconn without setting paca->ifuseconn */
@@ -98,8 +99,8 @@ int _getAndUseConnForPathCache(iFuseConn_t **iFuseConn, pathCache_t *paca) {
 	return 0;
 }
 
-int getAndUseIFuseConn (iFuseConn_t **iFuseConn, rodsEnv *myRodsEnv) {
-	int ret = _getAndUseIFuseConn(iFuseConn, myRodsEnv);
+int getAndUseIFuseConn( iFuseConn_t **iFuseConn ) {
+    int ret = _getAndUseIFuseConn( iFuseConn );
 	return ret;
 
 }
@@ -117,7 +118,7 @@ void _waitForConn() {
 	deleteConnReqWaitMutex(&myConnReqWait);
 }
 
-int _getAndUseIFuseConn (iFuseConn_t **iFuseConn, rodsEnv *myRodsEnv) {
+int _getAndUseIFuseConn( iFuseConn_t **iFuseConn ) {
     int status;
     iFuseConn_t *tmpIFuseConn;
 
@@ -131,7 +132,8 @@ int _getAndUseIFuseConn (iFuseConn_t **iFuseConn, rodsEnv *myRodsEnv) {
         	_waitForConn();
 			/* start from begining */
 			continue;
-        } else {
+        }
+        else {
 			tmpIFuseConn = (iFuseConn_t *) removeFirstElementOfConcurrentList(FreeConn);
 			if(tmpIFuseConn == NULL) {
 				if(listSize(ConnectedConn) < MAX_NUM_CONN) {
@@ -152,7 +154,8 @@ int _getAndUseIFuseConn (iFuseConn_t **iFuseConn, rodsEnv *myRodsEnv) {
 				}
 				_waitForConn();
 				continue;
-			} else {
+            }
+            else {
 				useIFuseConn(tmpIFuseConn);
 				*iFuseConn = tmpIFuseConn;
 				break;
@@ -179,11 +182,11 @@ int _getAndUseIFuseConn (iFuseConn_t **iFuseConn, rodsEnv *myRodsEnv) {
 }
 
 int
-useIFuseConn (iFuseConn_t *iFuseConn)
-{
+useIFuseConn( iFuseConn_t *iFuseConn ) {
     int status;
-    if (iFuseConn == NULL || iFuseConn->conn == NULL)
+    if ( iFuseConn == NULL || iFuseConn->conn == NULL ) {
         return USER__NULL_INPUT_ERR;
+    }
     LOCK_STRUCT (*iFuseConn);
     status = _useIFuseConn (iFuseConn);
     UNLOCK_STRUCT (*iFuseConn);
@@ -192,10 +195,10 @@ useIFuseConn (iFuseConn_t *iFuseConn)
 }
 
 int
-_useIFuseConn (iFuseConn_t *iFuseConn)
-{
-    if (iFuseConn == NULL || iFuseConn->conn == NULL) 
-	return USER__NULL_INPUT_ERR;
+_useIFuseConn( iFuseConn_t *iFuseConn ) {
+    if ( iFuseConn == NULL || iFuseConn->conn == NULL ) {
+        return USER__NULL_INPUT_ERR;
+    }
 
     iFuseConn->actTime = time (NULL);
     iFuseConn->pendingCnt++;
@@ -214,9 +217,10 @@ _useIFuseConn (iFuseConn_t *iFuseConn)
 }
 
 int
-_useFreeIFuseConn (iFuseConn_t *iFuseConn)
-{
-    if (iFuseConn == NULL) return USER__NULL_INPUT_ERR;
+_useFreeIFuseConn( iFuseConn_t *iFuseConn ) {
+    if ( iFuseConn == NULL ) {
+        return USER__NULL_INPUT_ERR;
+    }
     iFuseConn->actTime = time (NULL);
     iFuseConn->inuseCnt++;
     LOCK(iFuseConn->inuseLock);
@@ -224,10 +228,10 @@ _useFreeIFuseConn (iFuseConn_t *iFuseConn)
 }
 
 int
-unuseIFuseConn (iFuseConn_t *iFuseConn)
-{
-    if (iFuseConn == NULL || iFuseConn->conn == NULL)
+unuseIFuseConn( iFuseConn_t *iFuseConn ) {
+    if ( iFuseConn == NULL || iFuseConn->conn == NULL ) {
         return USER__NULL_INPUT_ERR;
+    }
 	LOCK_STRUCT(*iFuseConn);
     iFuseConn->actTime = time (NULL);
     iFuseConn->inuseCnt--;
@@ -241,8 +245,7 @@ unuseIFuseConn (iFuseConn_t *iFuseConn)
 }
 
 int
-ifuseConnect (iFuseConn_t *iFuseConn, rodsEnv *myRodsEnv)
-{
+ifuseConnect( iFuseConn_t *iFuseConn, rodsEnv *myRodsEnv ) {
 	int status = 0;
 	LOCK_STRUCT(*iFuseConn);
 	if(iFuseConn->conn == NULL) {
@@ -259,9 +262,10 @@ ifuseConnect (iFuseConn_t *iFuseConn, rodsEnv *myRodsEnv)
 				  "ifuseConnect: rcConnect failure %s", errMsg.msg);
 				UNLOCK_STRUCT(*iFuseConn);
 				if (errMsg.status < 0) {
-					return (errMsg.status);
-				} else {
-					return (-1);
+                    return errMsg.status;
+                }
+                else {
+                    return -1;
 				}
 			}
 		}
@@ -273,7 +277,7 @@ ifuseConnect (iFuseConn_t *iFuseConn, rodsEnv *myRodsEnv)
 		}
 	}
     UNLOCK_STRUCT(*iFuseConn);
-    return (status);
+    return status;
 }
 
 void _ifuseDisconnect(iFuseConn_t *tmpIFuseConn) {
@@ -291,8 +295,7 @@ void ifuseDisconnect(iFuseConn_t *tmpIFuseConn) {
 
 
 int
-signalConnManager ()
-{
+signalConnManager() {
 	if (listSize(ConnectedConn) > HIGH_NUM_CONN) {
         notifyTimeoutWait(&ConnManagerLock, &ConnManagerCond);
     }
@@ -300,8 +303,7 @@ signalConnManager ()
 }
 
 int
-disconnectAll ()
-{
+disconnectAll() {
     iFuseConn_t *tmpIFuseConn;
     while ((tmpIFuseConn = (iFuseConn_t *) removeFirstElementOfConcurrentList(ConnectedConn)) != NULL) {
     	ifuseDisconnect(tmpIFuseConn);
@@ -310,12 +312,12 @@ disconnectAll ()
 }
 /* have to do this after getIFuseConn - lock */
 int
-ifuseReconnect (iFuseConn_t *iFuseConn)
-{
+ifuseReconnect( iFuseConn_t *iFuseConn ) {
     int status = 0;
 
-    if (iFuseConn == NULL || iFuseConn->conn == NULL)
+    if ( iFuseConn == NULL || iFuseConn->conn == NULL ) {
     	return USER__NULL_INPUT_ERR;
+    }
 
     rodsLog (LOG_DEBUG, "ifuseReconnect: reconnecting");
     ifuseDisconnect (iFuseConn);
@@ -324,8 +326,7 @@ ifuseReconnect (iFuseConn_t *iFuseConn)
 }
 
 void
-connManager ()
-{
+connManager() {
     time_t curTime;
     iFuseConn_t *tmpIFuseConn;
     ListNode *node;
@@ -361,12 +362,14 @@ connManager ()
 						UNLOCK_STRUCT(*tmpIFuseConn);
 						/* rodsLog(LOG_ERROR, "[FREE IFUSE CONN] %s:%d %p", __FILE__, __LINE__, tmpIFuseConn); */
 						_freeIFuseConn(tmpIFuseConn);
-					} else { /* set to timed out */
+                    }
+                    else {   /* set to timed out */
 						_ifuseDisconnect(tmpIFuseConn);
 						UNLOCK_STRUCT(*tmpIFuseConn);
 					}
 					disconned ++;
-				} else {
+                }
+                else {
 					UNLOCK_STRUCT(*tmpIFuseConn);
 				}
 				node = node->next;
