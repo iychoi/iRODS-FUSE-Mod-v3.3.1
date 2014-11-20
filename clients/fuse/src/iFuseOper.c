@@ -1011,6 +1011,7 @@ irodsOpen( const char *path, struct fuse_file_info *fi ) {
                     return status;
                 }
                 //fi->fh = desc->index;
+                ALLOC_IFUSE_DESC_INDEX(fi);
                 SET_IFUSE_DESC_INDEX(fi, desc->index);
                 if(tmpPathCache->fileCache->iFd == 0) {
                     tmpPathCache->fileCache->iFd = open(tmpPathCache->fileCache->fileCachePath, O_RDWR);
@@ -1164,6 +1165,7 @@ irodsOpen( const char *path, struct fuse_file_info *fi ) {
     }
 
     //fi->fh = desc->index;
+    ALLOC_IFUSE_DESC_INDEX(fi);
     SET_IFUSE_DESC_INDEX(fi, desc->index);
     return 0;
 }
@@ -1281,6 +1283,7 @@ irodsRelease( const char *path, struct fuse_file_info *fi ) {
 
     //descInx = fi->fh;
     descInx = GET_IFUSE_DESC_INDEX(fi);
+    FREE_IFUSE_DESC_INDEX(fi);
 
     rodsLog (LOG_DEBUG, "irodsRelease - desc : %s - %d", path, descInx);
 
