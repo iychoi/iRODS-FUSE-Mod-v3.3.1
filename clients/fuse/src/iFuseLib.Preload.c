@@ -230,6 +230,7 @@ preloadFile (const char *path, struct stat *stbuf) {
 #endif
     } else {
         rodsLog (LOG_DEBUG, "preloadFile: given file is already preloaded - %s", iRODSPath);
+        UNLOCK(PreloadLock);
         status = 0;
     }
 
