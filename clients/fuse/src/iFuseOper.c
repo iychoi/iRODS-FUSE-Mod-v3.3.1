@@ -360,17 +360,6 @@ irodsMknod (const char *path, mode_t mode, dev_t rdev)
     fileCache = addFileCache(localFd, objPath, (char *) path, cachePath, mode, 0, HAVE_NEWLY_CREATED_CACHE);
     stbuf.st_mode = mode;
     pathExist (pctable, (char *) path, fileCache, &stbuf, &tmpPathCache);
-    /* desc = newIFuseDesc (objPath, (char *) path, fileCache, &status); */
-
-    if (status < 0) {
-        rodsLogError (LOG_ERROR, status,
-          "irodsMknod: allocIFuseDesc of %s error", path);
-        closeIrodsFd (iFuseConn->conn, status);
-        unuseIFuseConn (iFuseConn);
-        return 0;
-    }
-
-/*    rodsLog (LOG_ERROR, "irodsMknod: %s conn: %p", path, iFuseConn);*/
 
     unuseIFuseConn (iFuseConn);
 
@@ -753,7 +742,7 @@ irodsRename (const char *from, const char *to)
 int
 irodsLink (const char *from, const char *to)
 {
-    rodsLog (LOG_DEBUG, "irodsLink: %s to %s");
+    rodsLog (LOG_DEBUG, "irodsLink: %s to %s", from, to);
     return (0);
 }
 
@@ -894,7 +883,7 @@ irodsTruncate (const char *path, off_t size)
             if(tmpPathCache->fileCache->state == HAVE_NEWLY_CREATED_CACHE) {
                 status = truncate (tmpPathCache->fileCache->fileCachePath, size);
                 if (status >= 0) {
-                    updatePathCacheStatFromFileCache (tmpPathCache);
+                    _updatePathCacheStatFromFileCache (tmpPathCache);
                     UNLOCK_STRUCT(*(tmpPathCache->fileCache));
                     UNLOCK_STRUCT(*tmpPathCache);
 

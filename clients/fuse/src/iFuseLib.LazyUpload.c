@@ -271,8 +271,14 @@ writeLazyUploadBufferedFile (const char *path, const char *buf, size_t size, off
         // rewrite directly to iRODS
         descInx = GET_IFUSE_DESC_INDEX(fi);
 
+        if (checkFuseDesc (descInx) < 0) {
+            UNLOCK(LazyUploadLock);
+            return -EBADF;
+        }
+
         status = _ifuseWrite (&IFuseDesc[descInx], (char *)buf, size, offset);
         unlockDesc (descInx);
+        UNLOCK(LazyUploadLock);
         return status;
     }
 
