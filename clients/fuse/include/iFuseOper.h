@@ -24,7 +24,7 @@
     f->fh = (uint64_t)malloc(sizeof(uint64_t));
 
 #define FREE_IFUSE_DESC_INDEX(f) \
-    free(f->fh);
+    free((uint64_t*)(f->fh));
 
 #define GET_IFUSE_DESC_INDEX(f) \
     (*((uint64_t*)(f->fh)))
