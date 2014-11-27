@@ -1035,12 +1035,12 @@ irodsOpen( const char *path, struct fuse_file_info *fi ) {
                         }
                     }
 #endif
-                } else if ((flags & O_ACCMODE) == O_RDONLY && stbuf.st_size > MAX_READ_CACHE_SIZE) {
+                } else if ((flags & O_ACCMODE) == O_RDONLY && tmpPathCache->stbuf.st_size > MAX_READ_CACHE_SIZE) {
 #ifdef ENABLE_PRELOAD
                     if (isPreloadEnabled() == 0) {
                         // preload irods file
                         // this may fail if background tasks are already running too many
-                        if (preloadFile(path, &stbuf) == 0) {
+                        if (preloadFile(path, &tmpPathCache->stbuf) == 0) {
                             rodsLog (LOG_DEBUG, "irodsOpen: preload %s", path);
                         }
                     }
