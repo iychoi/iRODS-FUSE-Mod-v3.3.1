@@ -1,2 +1,3 @@
 This project will not be updated any more due to unstable base code.
-Please use 3.2 based mod instead. [iRODS-FUSE-Mod-v3.2](https://github.com/iychoi/iRODS-FUSE-Mod-v3.2)
+All the optimizations and bugfix are applied to the official iRODS 4.1.4.
+Please refer [iRODS repository](https://github.com/irods/irods) or [iRODS-FUSE development repository](https://github.com/iychoi/irods).
